@@ -16,7 +16,21 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelna
 
 
 # How long to wait after the user's last utterance before processing (seconds)
-DEBOUNCE_DELAY = 1.5
+DEBOUNCE_DELAY = 1.0
+
+# Filler words / backchannel sounds that should NOT trigger a response
+FILLER_WORDS = {
+    "um", "umm", "ummm", "uh", "uhh", "uhhh", "hmm", "hm", "hmmmm",
+    "ah", "ahh", "oh", "ohh", "er", "err", "like", "so",
+    "yeah", "yep", "yup", "mhm", "mhmm", "mm", "mmm", "mm-hmm",
+    "okay", "ok", "uh-huh", "uh huh", "right",
+}
+
+
+def is_filler_only(text: str) -> bool:
+    """Check if the text is just filler words / backchannel sounds."""
+    words = text.lower().replace(".", "").replace(",", "").replace("?", "").replace("!", "").split()
+    return all(w in FILLER_WORDS for w in words)
 
 
 class PresentationAgent(Agent):
@@ -87,17 +101,17 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
         agent._is_processing = False
         return
 
+    # Ignore filler-only utterances — just stay quiet
+    if is_filler_only(full_transcript):
+        logger.info("Ignoring filler-only transcript: '%s'", full_transcript)
+        agent._is_processing = False
+        return
+
     agent._is_processing = True
     logger.info("Processing (debounced): '%s' (slide: %d)", full_transcript, agent.current_slide)
 
     # Mark as interrupted so presentation loop knows
     agent.interrupted = True
-
-    # Filler while Claude thinks
-    await session.say(
-        "Hmm, let me think about that...",
-        allow_interruptions=True,
-    )
 
     try:
         result = await route_slide(
