@@ -2,11 +2,30 @@ import json
 import logging
 
 from anthropic import AsyncAnthropic
+from pydantic import BaseModel, Field, field_validator
 
 from slides import SYSTEM_PROMPT
 
 logger = logging.getLogger("presentation-agent.router")
 anthropic_client = AsyncAnthropic()
+
+
+class SlideRouteResponse(BaseModel):
+    """Validated response from Claude for slide routing."""
+    slideIndex: int = Field(ge=0, le=5, description="Target slide index (0-5)")
+    response: str = Field(min_length=1, description="Spoken response text")
+    shouldChangeSlide: bool = Field(default=False, description="Whether to navigate to a different slide")
+
+    @field_validator("slideIndex")
+    @classmethod
+    def clamp_slide_index(cls, v: int) -> int:
+        return max(0, min(5, v))
+
+    @field_validator("response")
+    @classmethod
+    def clean_response(cls, v: str) -> str:
+        # Strip markdown artifacts that Claude sometimes adds
+        return v.strip().strip("`").strip('"')
 
 
 async def route_slide(
@@ -49,16 +68,17 @@ async def route_slide(
     logger.info("Claude raw response: %s", response_text)
 
     try:
-        result = json.loads(response_text)
-    except json.JSONDecodeError:
-        logger.warning("Failed to parse Claude JSON, using raw text as response")
-        result = {
-            "slideIndex": current_slide,
-            "response": response_text,
-            "shouldChangeSlide": False,
-        }
+        parsed = SlideRouteResponse.model_validate_json(response_text)
+    except Exception as e:
+        logger.warning("Pydantic validation failed (%s), falling back to defaults", e)
+        parsed = SlideRouteResponse(
+            slideIndex=current_slide,
+            response=response_text,
+            shouldChangeSlide=False,
+        )
 
-    logger.info("Route result: slide=%d, change=%s", result.get("slideIndex", current_slide), result.get("shouldChangeSlide", False))
+    result = parsed.model_dump()
+    logger.info("Route result: slide=%d, change=%s", result["slideIndex"], result["shouldChangeSlide"])
     return result
 
 

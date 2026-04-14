@@ -82,20 +82,12 @@ class PresentationAgent(Agent):
         )
 
     async def present_slide(self, index: int) -> None:
-        """Narrate a single slide with per-slide voice emotion."""
+        """Narrate a single slide."""
         if index < 0 or index >= len(SLIDES):
             return
 
         slide = SLIDES[index]
-        logger.info("Presenting slide %d: %s (emotion: %s)", index, slide["title"], slide.get("emotion"))
-
-        # Update TTS emotion/speed for this slide
-        self.session.tts.update_options(
-            extra_kwargs={
-                "emotion": slide.get("emotion", "positivity:medium"),
-                "speed": slide.get("speed", "normal"),
-            }
-        )
+        logger.info("Presenting slide %d: %s", index, slide["title"])
 
         await self.send_slide(index)
         speech = await self.session.say(slide["narration"], allow_interruptions=True)

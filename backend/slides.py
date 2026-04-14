@@ -18,8 +18,6 @@ SLIDES = [
             "generative AI", "introduction", "overview", "what is AI",
             "revolution", "market",
         ],
-        "emotion": "positivity:high",
-        "speed": "normal",
     },
     {
         "index": 1,
@@ -41,8 +39,6 @@ SLIDES = [
             "LLM", "language model", "transformer", "GPT", "Claude",
             "Gemini", "training", "tokens", "how it works",
         ],
-        "emotion": "curiosity:high",
-        "speed": "normal",
     },
     {
         "index": 2,
@@ -65,8 +61,6 @@ SLIDES = [
             "applications", "healthcare", "medicine", "education",
             "creative", "industry", "use cases", "real world",
         ],
-        "emotion": "positivity:high surprise:medium",
-        "speed": "normal",
     },
     {
         "index": 3,
@@ -89,8 +83,6 @@ SLIDES = [
             "ethics", "bias", "misinformation", "deepfake", "alignment",
             "safety", "risks", "dangers", "regulation",
         ],
-        "emotion": "sadness:low",
-        "speed": "slow",
     },
     {
         "index": 4,
@@ -113,8 +105,6 @@ SLIDES = [
             "future", "AGI", "multimodal", "agents", "autonomous",
             "robots", "next decade", "road ahead",
         ],
-        "emotion": "surprise:medium curiosity:high",
-        "speed": "normal",
     },
     {
         "index": 5,
@@ -136,8 +126,6 @@ SLIDES = [
             "summary", "conclusion", "takeaways", "key points",
             "collaboration", "human", "upskill",
         ],
-        "emotion": "positivity:high",
-        "speed": "normal",
     },
 ]
 
