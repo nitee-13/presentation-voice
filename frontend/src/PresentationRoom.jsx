@@ -6,10 +6,13 @@ import {
 import { SLIDES } from "./slides";
 import SlideViewer from "./SlideViewer";
 import VoiceControls from "./VoiceControls";
+import Captions from "./Captions";
+import QAPanel from "./QAPanel";
 
 export default function PresentationRoom() {
   const [currentSlide, setCurrentSlide] = useState(0);
-  const { state: agentState } = useVoiceAssistant();
+  const [showCaptions, setShowCaptions] = useState(false);
+  const { state: agentState, agentTranscriptions } = useVoiceAssistant();
 
   const onDataReceived = useCallback((msg) => {
     try {
@@ -60,6 +63,12 @@ export default function PresentationRoom() {
         slide={SLIDES[currentSlide]}
         index={currentSlide}
         total={SLIDES.length}
+      />
+      <QAPanel />
+      <Captions
+        agentTranscriptions={agentTranscriptions}
+        show={showCaptions}
+        onToggle={() => setShowCaptions((prev) => !prev)}
       />
       <VoiceControls state={agentState} />
     </>

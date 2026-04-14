@@ -18,6 +18,8 @@ SLIDES = [
             "generative AI", "introduction", "overview", "what is AI",
             "revolution", "market",
         ],
+        "emotion": "positivity:high",
+        "speed": "normal",
     },
     {
         "index": 1,
@@ -39,6 +41,8 @@ SLIDES = [
             "LLM", "language model", "transformer", "GPT", "Claude",
             "Gemini", "training", "tokens", "how it works",
         ],
+        "emotion": "curiosity:high",
+        "speed": "normal",
     },
     {
         "index": 2,
@@ -61,6 +65,8 @@ SLIDES = [
             "applications", "healthcare", "medicine", "education",
             "creative", "industry", "use cases", "real world",
         ],
+        "emotion": "positivity:high surprise:medium",
+        "speed": "normal",
     },
     {
         "index": 3,
@@ -83,6 +89,8 @@ SLIDES = [
             "ethics", "bias", "misinformation", "deepfake", "alignment",
             "safety", "risks", "dangers", "regulation",
         ],
+        "emotion": "sadness:low",
+        "speed": "slow",
     },
     {
         "index": 4,
@@ -105,6 +113,8 @@ SLIDES = [
             "future", "AGI", "multimodal", "agents", "autonomous",
             "robots", "next decade", "road ahead",
         ],
+        "emotion": "surprise:medium curiosity:high",
+        "speed": "normal",
     },
     {
         "index": 5,
@@ -126,6 +136,8 @@ SLIDES = [
             "summary", "conclusion", "takeaways", "key points",
             "collaboration", "human", "upskill",
         ],
+        "emotion": "positivity:high",
+        "speed": "normal",
     },
 ]
 
@@ -158,7 +170,11 @@ Your job:
 1. Determine which slide best matches the user's question or command.
 2. Provide a short, spoken-language response (2-3 sentences max, voice-friendly).
 3. Handle navigation commands like "next slide", "go back", "previous", "go to slide 3", etc.
-4. Use conversation history to understand contextual references (e.g. "tell me more about that").
+4. Use conversation history to understand contextual references. Each history entry includes which slide the user was viewing. Use this to resolve:
+   - "tell me more about that" → the topic from the most recent exchange and its slide
+   - "the previous point" → the content/bullet before the current one on the current slide
+   - "what you said about slide 2" → content from slide index 1
+   - "go back to that part about ethics" → navigate to the matching slide
 
 Return ONLY valid JSON in this exact format — no markdown, no extra text:
 {{"slideIndex": <number 0-5>, "response": "<your spoken response>", "shouldChangeSlide": <true or false>}}

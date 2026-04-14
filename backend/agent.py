@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from livekit.agents import AgentSession, AgentServer, JobContext, inference, cli
 from livekit.agents.voice import Agent
 
-from claude_router import route_slide
+from claude_router import route_slide, summarize_conversation
 from slides import SLIDES
 
 load_dotenv()
@@ -33,6 +33,33 @@ def is_filler_only(text: str) -> bool:
     return all(w in FILLER_WORDS for w in words)
 
 
+LANGUAGE_TRIGGERS = {
+    "spanish": "Spanish", "español": "Spanish",
+    "french": "French", "français": "French",
+    "german": "German", "deutsch": "German",
+    "portuguese": "Portuguese", "português": "Portuguese",
+    "italian": "Italian", "italiano": "Italian",
+    "japanese": "Japanese", "日本語": "Japanese",
+    "chinese": "Chinese", "中文": "Chinese",
+    "korean": "Korean", "한국어": "Korean",
+    "russian": "Russian", "русский": "Russian",
+    "english": "English",
+}
+
+
+def detect_language_switch(text: str) -> str | None:
+    """Detect if the user wants to switch language. Returns language name or None."""
+    lower = text.lower()
+    # Match patterns like "present in spanish", "switch to french", "speak in german"
+    for trigger in ["present in", "switch to", "speak in", "change to", "respond in", "use"]:
+        if trigger in lower:
+            rest = lower.split(trigger, 1)[1].strip().rstrip(".")
+            for key, lang in LANGUAGE_TRIGGERS.items():
+                if key in rest:
+                    return lang
+    return None
+
+
 class PresentationAgent(Agent):
     def __init__(self) -> None:
         super().__init__(instructions="You are an AI presentation assistant.")
@@ -40,6 +67,7 @@ class PresentationAgent(Agent):
         self.history: list[dict] = []
         self.is_presenting = False
         self.interrupted = False
+        self.language: str | None = None  # None = default English
         # Debounce state
         self._pending_parts: list[str] = []
         self._debounce_task: asyncio.Task | None = None
@@ -54,12 +82,20 @@ class PresentationAgent(Agent):
         )
 
     async def present_slide(self, index: int) -> None:
-        """Narrate a single slide."""
+        """Narrate a single slide with per-slide voice emotion."""
         if index < 0 or index >= len(SLIDES):
             return
 
         slide = SLIDES[index]
-        logger.info("Presenting slide %d: %s", index, slide["title"])
+        logger.info("Presenting slide %d: %s (emotion: %s)", index, slide["title"], slide.get("emotion"))
+
+        # Update TTS emotion/speed for this slide
+        self.session.tts.update_options(
+            extra_kwargs={
+                "emotion": slide.get("emotion", "positivity:medium"),
+                "speed": slide.get("speed", "normal"),
+            }
+        )
 
         await self.send_slide(index)
         speech = await self.session.say(slide["narration"], allow_interruptions=True)
@@ -113,11 +149,41 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
     # Mark as interrupted so presentation loop knows
     agent.interrupted = True
 
+    # Check for language switch command
+    new_lang = detect_language_switch(full_transcript)
+    if new_lang:
+        agent.language = None if new_lang == "English" else new_lang
+        confirm = f"Switching to {new_lang}!" if new_lang != "English" else "Switching back to English!"
+        logger.info("Language switch: %s", new_lang)
+        await session.say(confirm, allow_interruptions=True)
+        agent._is_processing = False
+        return
+
+    # Check for summarize command
+    lower = full_transcript.lower().strip()
+    is_summarize = any(kw in lower for kw in [
+        "summarize", "summarise", "recap", "summary",
+        "what have we discussed", "what did we cover",
+    ])
+
+    if is_summarize and agent.history:
+        logger.info("Summarize command detected")
+        try:
+            summary = await summarize_conversation(agent.history)
+            speech = await session.say(summary, allow_interruptions=True)
+            await speech.wait_for_playout()
+        except Exception as e:
+            logger.error("Summarize failed: %s", e, exc_info=True)
+            await session.say("Sorry, I had trouble summarizing. Could you try again?")
+        agent._is_processing = False
+        return
+
     try:
         result = await route_slide(
             transcript=full_transcript,
             current_slide=agent.current_slide,
             history=agent.history,
+            language=agent.language,
         )
     except Exception as e:
         logger.error("Claude routing failed: %s", e, exc_info=True)
@@ -127,11 +193,23 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
         agent._is_processing = False
         return
 
-    # Keep the last 5 conversation turns
-    agent.history.append({
+    # Store conversation turn with slide context for follow-up awareness
+    slide = SLIDES[agent.current_slide]
+    entry = {
         "user": full_transcript,
         "assistant": result.get("response", ""),
-    })
+        "slide_index": agent.current_slide,
+        "slide_title": slide["title"],
+    }
+    agent.history.append(entry)
+
+    # Send Q&A entry to frontend for the history panel
+    await agent.session.room_io.room.local_participant.publish_data(
+        json.dumps({"user": entry["user"], "assistant": entry["assistant"]}),
+        topic="qa_entry",
+    )
+
+    # Keep the last 5 turns for Claude routing context
     if len(agent.history) > 5:
         agent.history = agent.history[-5:]
 
