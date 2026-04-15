@@ -4,10 +4,15 @@ import logging
 import re
 
 from dotenv import load_dotenv
-from livekit.agents import AgentSession, AgentServer, JobContext, inference, cli
+from livekit.agents import AgentSession, AgentServer, JobContext, cli
 from livekit.agents.voice import Agent
+from livekit.plugins import deepgram, google
 
-from claude_router import route_slide, summarize_conversation
+from claude_router import (
+    route_slide, summarize_conversation, generate_filler, warm_filler_cache,
+    POPUP_TOOLS, DEVI_INTRO, check_start_intent, generate_pre_start_response,
+    warm_start_cache,
+)
 from slides import SLIDES, SYSTEM_PROMPT
 
 load_dotenv()
@@ -34,10 +39,18 @@ def is_filler_only(text: str) -> bool:
     return all(w in FILLER_WORDS for w in words)
 
 
-def split_into_sentences(text: str) -> list[str]:
-    """Split narration text into sentences for granular tracking."""
+def split_into_chunks(text: str, sentences_per_chunk: int = 3) -> list[str]:
+    """Split narration into chunks of N sentences for TTS batching.
+
+    Balances mid-slide pause/resume granularity with TTS efficiency.
+    """
     sentences = re.split(r'(?<=[.!?])\s+', text.strip())
-    return [s for s in sentences if s.strip()]
+    sentences = [s for s in sentences if s.strip()]
+    chunks = []
+    for i in range(0, len(sentences), sentences_per_chunk):
+        chunk = " ".join(sentences[i:i + sentences_per_chunk])
+        chunks.append(chunk)
+    return chunks
 
 
 LANGUAGE_TRIGGERS = {
@@ -92,6 +105,7 @@ class PresentationAgent(Agent):
         # --- State ---
         self.history: list[dict] = []
         self.is_presenting = False
+        self.waiting_for_start = True
         self.paused = False
         self.language: str | None = None
 
@@ -135,20 +149,32 @@ class PresentationAgent(Agent):
             if name == "advance_to_slide":
                 slide_index = inp["slide_index"]
                 if 0 <= slide_index < len(SLIDES):
-                    logger.info("advance_to_slide: visual %d → %d, cursor %d → %d",
-                                self.current_slide, slide_index, self._cursor, slide_index)
-                    # Move BOTH pointers — permanent navigation
-                    await self.send_slide(slide_index)
-                    self._cursor = slide_index
-                    self._sentence_index = 0
+                    # During narration: backward advance → force peek
+                    if self.is_presenting and slide_index < self._cursor:
+                        logger.info("advance_to_slide(%d) → forced peek (backward during narration, cursor stays at %d)",
+                                    slide_index, self._cursor)
+                        await self.send_slide(slide_index)
+                        self.paused = True
+                    else:
+                        logger.info("advance_to_slide: visual %d → %d, cursor %d → %d",
+                                    self.current_slide, slide_index, self._cursor, slide_index)
+                        await self.send_slide(slide_index)
+                        self._cursor = slide_index
+                        self._sentence_index = 0
 
             elif name == "peek_at_slide":
                 slide_index = inp["slide_index"]
                 if 0 <= slide_index < len(SLIDES):
-                    logger.info("peek_at_slide (visual only): %d → %d  [cursor stays at %d, sentence %d]",
-                                self.current_slide, slide_index, self._cursor, self._sentence_index)
-                    # Only move visual pointer — cursor untouched
-                    await self.send_slide(slide_index)
+                    if self.is_presenting:
+                        logger.info("peek_at_slide: visual %d → %d  [cursor stays at %d, sentence %d] — pausing narration",
+                                    self.current_slide, slide_index, self._cursor, self._sentence_index)
+                        await self.send_slide(slide_index)
+                        self.paused = True
+                    else:
+                        # Narration done — no two-pointer, just navigate
+                        logger.info("peek_at_slide(%d) → direct nav (narration complete)",
+                                    slide_index)
+                        await self.send_slide(slide_index)
 
             elif name == "pause_presentation":
                 logger.info("pause_presentation [cursor at slide %d, sentence %d]",
@@ -189,15 +215,6 @@ class PresentationAgent(Agent):
                     "ttl": 12,
                 })
 
-            elif name == "show_concept_cloud":
-                logger.info("show_concept_cloud: %s", inp.get("title"))
-                await self.publish_popup({
-                    "type": "concept_cloud",
-                    "title": inp["title"],
-                    "concepts": inp["concepts"],
-                    "ttl": 10,
-                })
-
             elif name == "show_citations":
                 logger.info("show_citations: %s", inp.get("title"))
                 await self.publish_popup({
@@ -206,6 +223,12 @@ class PresentationAgent(Agent):
                     "citations": inp["citations"],
                     "ttl": 10,
                 })
+
+            elif name == "end_presentation":
+                logger.info("end_presentation — stopping narration")
+                self.is_presenting = False
+                self.paused = False
+                self._resume_event.set()  # unblock narration loop if waiting
 
             else:
                 logger.warning("Unknown tool call: %s", name)
@@ -223,7 +246,7 @@ class PresentationAgent(Agent):
             return True
 
         slide = SLIDES[index]
-        sentences = split_into_sentences(slide["narration"])
+        sentences = split_into_chunks(slide["narration"])
 
         if not sentences:
             return True
@@ -236,6 +259,11 @@ class PresentationAgent(Agent):
                      index, slide["title"], self._sentence_index, len(sentences))
 
         while self._sentence_index < len(sentences):
+            # If presentation ended, stop immediately
+            if not self.is_presenting:
+                logger.info("Presentation ended — stopping narration")
+                return False
+
             # If cursor moved (advance_to_slide called), stop narrating this slide
             if self._cursor != index:
                 logger.info("Cursor moved away from slide %d → %d, stopping narration",
@@ -257,17 +285,15 @@ class PresentationAgent(Agent):
                 logger.info("Resumed at slide %d, sentence %d/%d",
                             index, self._sentence_index, len(sentences))
 
-            # If processing a Q&A, wait for it to finish
-            if self._is_processing:
-                while self._is_processing:
+            # If user spoke (pending input) or processing Q&A, wait for it to resolve
+            if self._pending_parts or self._is_processing:
+                while self._pending_parts or self._is_processing:
                     await asyncio.sleep(0.2)
-                # After Q&A, check if cursor moved (advance_to_slide)
+                # After user input resolved, check state
                 if self._cursor != index:
                     return False
-                # If paused (by pause_presentation), loop back to pause check
                 if self.paused:
                     continue
-                # Sync visual back to cursor slide (peek_at_slide may have changed it)
                 if self.current_slide != index:
                     await self.send_slide(index)
 
@@ -276,7 +302,7 @@ class PresentationAgent(Agent):
             await speech.wait_for_playout()
 
             # Only advance sentence if we weren't interrupted
-            if not self._is_processing and not self.paused and self._cursor == index:
+            if not self._is_processing and not self._pending_parts and not self.paused and self._cursor == index:
                 self._sentence_index += 1
 
         # Slide fully narrated
@@ -310,10 +336,14 @@ class PresentationAgent(Agent):
             completed = await self.narrate_slide(target)
 
             if completed:
+                # Wait for any pending user input before auto-advancing
+                while self._pending_parts or self._is_processing:
+                    await asyncio.sleep(0.2)
+                # If user paused, navigated, or moved cursor — don't auto-advance
+                if self.paused or self._cursor != target:
+                    continue
                 await asyncio.sleep(1.5)
-                # Only advance cursor if it wasn't moved by advance_to_slide
-                if self._cursor == target:
-                    self._cursor += 1
+                self._cursor += 1
             # If not completed: cursor was moved by advance_to_slide,
             # loop re-reads self._cursor at the top
 
@@ -321,9 +351,10 @@ class PresentationAgent(Agent):
         logger.info("Presentation complete — all slides narrated")
 
     async def on_enter(self) -> None:
-        """Start the full presentation when agent enters."""
-        logger.info("Agent entered — starting full presentation")
-        asyncio.ensure_future(self.run_presentation())
+        """Speak intro and wait for user to signal start."""
+        logger.info("Agent entered — speaking intro")
+        speech = await self.session.say(DEVI_INTRO, allow_interruptions=True)
+        await speech.wait_for_playout()
 
 
 # ---------------------------------------------------------------------------
@@ -334,6 +365,7 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
     """Process the accumulated transcript after debounce delay."""
     full_transcript = " ".join(agent._pending_parts).strip()
     agent._pending_parts = []
+    agent._is_processing = True
 
     if not full_transcript:
         agent._is_processing = False
@@ -344,7 +376,35 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
         agent._is_processing = False
         return
 
-    agent._is_processing = True
+    # --- Intro phase: waiting for user to start ---
+    if agent.waiting_for_start:
+        logger.info("Intro phase — checking start intent: '%s'", full_transcript)
+        try:
+            wants_start = await check_start_intent(full_transcript)
+        except Exception as e:
+            logger.error("Start intent check failed: %s", e)
+            wants_start = False
+
+        if wants_start:
+            logger.info("User wants to start — launching presentation")
+            agent.waiting_for_start = False
+            await session.say("Let's get started!", allow_interruptions=True)
+            asyncio.ensure_future(agent.run_presentation())
+        else:
+            try:
+                reply = await generate_pre_start_response(full_transcript)
+                speech = await session.say(reply, allow_interruptions=True)
+                await speech.wait_for_playout()
+            except Exception as e:
+                logger.error("Pre-start response failed: %s", e)
+                await session.say(
+                    "That's great! Just let me know when you'd like me to start the presentation.",
+                    allow_interruptions=True,
+                )
+
+        agent._is_processing = False
+        return
+
     logger.info("Processing: '%s' (visual: slide %d | cursor: slide %d, sentence %d)",
                 full_transcript, agent.current_slide, agent._cursor, agent._sentence_index)
 
@@ -382,6 +442,8 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
         result = await route_slide(
             transcript=full_transcript,
             current_slide=agent.current_slide,
+            cursor=agent._cursor,
+            paused=agent.paused,
             history=agent.history,
             language=agent.language,
         )
@@ -394,23 +456,40 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
     tool_calls = result.get("tool_calls", [])
     response = result.get("response", "")
 
-    # Split: popups fire immediately, control actions after speech
-    CONTROL_TOOLS = ("advance_to_slide", "peek_at_slide", "pause_presentation", "resume_presentation")
-    popup_calls = [tc for tc in tool_calls if tc["name"] not in CONTROL_TOOLS]
-    control_calls = [tc for tc in tool_calls if tc["name"] in CONTROL_TOOLS]
+    # Categorize tool calls by timing
+    popup_calls = [tc for tc in tool_calls if tc["name"] in POPUP_TOOLS]
+    pause_calls = [tc for tc in tool_calls if tc["name"] == "pause_presentation"]
+    after_speech_calls = [tc for tc in tool_calls if tc["name"] in (
+        "advance_to_slide", "peek_at_slide", "resume_presentation",
+        "end_presentation",
+    )]
 
-    # Execute popup tool calls immediately
+    # Execute pause immediately (before anything else)
+    if pause_calls:
+        await agent.execute_tool_calls(pause_calls)
+
+    # If popup tools present → filler → popup → main response
     if popup_calls:
+        popup_type = popup_calls[0]["name"].removeprefix("show_")
+        try:
+            filler = await generate_filler(full_transcript, popup_type)
+            if filler:
+                filler_speech = await session.say(filler, allow_interruptions=True)
+                await filler_speech.wait_for_playout()
+        except Exception as e:
+            logger.warning("Filler generation failed: %s", e)
+
+        # Show popups (appears while user heard the filler)
         await agent.execute_tool_calls(popup_calls)
 
-    # Speak the response
+    # Speak the main response
     if response:
         speech = await session.say(response, allow_interruptions=True)
         await speech.wait_for_playout()
 
-    # Execute control tool calls after speech
-    if control_calls:
-        await agent.execute_tool_calls(control_calls)
+    # Execute navigation + resume AFTER speech
+    if after_speech_calls:
+        await agent.execute_tool_calls(after_speech_calls)
 
     # Store conversation turn
     slide = SLIDES[agent.current_slide]
@@ -472,9 +551,12 @@ server = AgentServer()
 async def handle_session(ctx: JobContext) -> None:
     await ctx.connect()
 
+    # Prime Haiku caches so first calls are fast
+    await asyncio.gather(warm_filler_cache(), warm_start_cache())
+
     session = AgentSession(
-        stt=inference.STT(model="deepgram/nova-3"),
-        tts=inference.TTS(model="cartesia/sonic-3"),
+        stt=deepgram.STT(model="nova-3"),
+        tts=google.TTS(voice_name="en-US-Chirp3-HD-Achernar"),
     )
 
     agent = PresentationAgent()
@@ -482,6 +564,19 @@ async def handle_session(ctx: JobContext) -> None:
     @session.on("user_input_transcribed")
     def on_transcribed(ev):
         on_user_transcript(ev, agent, session)
+
+    @ctx.room.on("data_received")
+    def on_data(data_packet):
+        try:
+            if data_packet.topic == "user_slide_nav":
+                payload = json.loads(data_packet.data.decode())
+                slide_index = payload.get("slideIndex")
+                if isinstance(slide_index, int) and 0 <= slide_index < len(SLIDES):
+                    logger.info("User keyboard nav: visual %d → %d  [cursor stays at %d]",
+                                agent.current_slide, slide_index, agent._cursor)
+                    agent.current_slide = slide_index
+        except Exception as e:
+            logger.error("Failed to parse user_slide_nav: %s", e)
 
     await session.start(
         agent=agent,

@@ -11,6 +11,83 @@ anthropic_client = AsyncAnthropic()
 _MAX_SLIDE_INDEX = len(SLIDES) - 1
 
 # ---------------------------------------------------------------------------
+# Intro phase (before narration starts)
+# ---------------------------------------------------------------------------
+
+DEVI_INTRO = (
+    "Hi there! I'm Devi, your presentation assistant. "
+    "I'll be walking you through an introduction to artificial intelligence today, "
+    "covering everything from the basics to real-world applications. "
+    "Just let me know when you're ready and I'll get started!"
+)
+
+_START_CHECK_SYSTEM = (
+    "You are checking if the user wants to start a presentation. "
+    "Reply with ONLY the word 'yes' or 'no'.\n"
+    "yes: user wants to begin, start, go ahead, is ready, says yes, let's go, "
+    "okay, sure, go on, I'm ready, let's do it, start the presentation, etc.\n"
+    "no: user is chatting, introducing themselves, asking unrelated questions, "
+    "or anything that is NOT a clear signal to begin."
+)
+
+_PRE_START_SYSTEM = (
+    "You are Devi, a friendly AI presentation assistant. The presentation hasn't "
+    "started yet — you just introduced yourself. The user said something that is NOT "
+    "a request to start. Respond conversationally in 1-2 sentences, then end with a "
+    "gentle nudge like 'Just let me know when you'd like me to start!' or "
+    "'Whenever you're ready, I'll kick things off.' Vary your wording. "
+    "Output ONLY your spoken response."
+)
+
+
+async def warm_start_cache() -> None:
+    """Prime the Haiku start-intent cache at startup."""
+    try:
+        await anthropic_client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1,
+            system=[{
+                "type": "text",
+                "text": _START_CHECK_SYSTEM,
+                "cache_control": {"type": "ephemeral"},
+            }],
+            messages=[{"role": "user", "content": "warm"}],
+        )
+        logger.info("Start-intent cache warmed (Haiku)")
+    except Exception as e:
+        logger.warning("Failed to warm start-intent cache: %s", e)
+
+
+async def check_start_intent(transcript: str) -> bool:
+    """Check if user wants to start the presentation (Haiku, fast, cached)."""
+    message = await anthropic_client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=5,
+        system=[{
+            "type": "text",
+            "text": _START_CHECK_SYSTEM,
+            "cache_control": {"type": "ephemeral"},
+        }],
+        messages=[{"role": "user", "content": transcript}],
+    )
+    return message.content[0].text.strip().lower().startswith("yes")
+
+
+async def generate_pre_start_response(transcript: str) -> str:
+    """Generate a conversational response during intro phase (Haiku, cached)."""
+    message = await anthropic_client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=100,
+        system=[{
+            "type": "text",
+            "text": _PRE_START_SYSTEM,
+            "cache_control": {"type": "ephemeral"},
+        }],
+        messages=[{"role": "user", "content": transcript}],
+    )
+    return message.content[0].text.strip()
+
+# ---------------------------------------------------------------------------
 # Tool definitions for direct Anthropic API calls
 # ---------------------------------------------------------------------------
 
@@ -18,9 +95,9 @@ TOOLS = [
     {
         "name": "advance_to_slide",
         "description": (
-            "Advance the presentation to a specific slide permanently. Use this for "
-            "forward progression: 'next slide', 'skip to slide 5', 'move on'. "
-            "The presentation will continue auto-narrating from this slide onward."
+            "Move the presentation to a specific slide permanently, forward or backward. "
+            "Use for: 'next slide', 'skip to slide 5', 'go back to slide 2 and continue from there', "
+            "'previous slide', 'move on'. The presentation will continue auto-narrating from this slide onward."
         ),
         "input_schema": {
             "type": "object",
@@ -131,26 +208,6 @@ TOOLS = [
         },
     },
     {
-        "name": "show_concept_cloud",
-        "description": (
-            "Display a concept cloud (word cloud) popup. Use this to visualize "
-            "related terms, keywords, or ideas around a topic."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "title": {"type": "string", "description": "Cloud title."},
-                "concepts": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of concept strings.",
-                },
-            },
-            "required": ["title", "concepts"],
-            "additionalProperties": False,
-        },
-    },
-    {
         "name": "show_citations",
         "description": (
             "Display source citations popup. Use this when referencing research papers, "
@@ -200,12 +257,30 @@ TOOLS = [
             "additionalProperties": False,
         },
     },
+    {
+        "name": "end_presentation",
+        "description": (
+            "End the presentation entirely. Call this when the user is done and wants "
+            "to finish. Examples: 'we're done', 'that's it', 'end the presentation', "
+            "'thank you, that's all', 'I think we're finished', 'wrap it up'. "
+            "Do NOT use this for temporary pauses — only for a final goodbye."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+        },
+        "cache_control": {"type": "ephemeral"},
+    },
 ]
 
 
 async def route_slide(
     transcript: str,
     current_slide: int,
+    cursor: int,
+    paused: bool,
     history: list,
     language: str | None = None,
 ) -> dict:
@@ -217,6 +292,20 @@ async def route_slide(
             "tool_calls": list[dict],   # tool_use blocks to execute
         }
     """
+
+    # Build presentation state block
+    is_peeking = current_slide != cursor
+    state_parts = [
+        f"Visible slide index: {current_slide}",
+        f"Narration cursor index: {cursor}",
+        f"Status: {'PAUSED' if paused else 'PLAYING'}",
+    ]
+    if is_peeking:
+        state_parts.append(
+            f"Note: User is PEEKING at slide {current_slide + 1} "
+            f"(narration will resume from slide {cursor + 1})"
+        )
+    state_block = "\n".join(state_parts)
 
     history_str = ""
     if history:
@@ -233,7 +322,7 @@ async def route_slide(
         lang_str = f"\n\nIMPORTANT: Respond in {language}. Your entire spoken response MUST be in {language}."
 
     user_message = (
-        f"Current slide index: {current_slide}\n"
+        f"{state_block}\n"
         f"User said: \"{transcript}\""
         f"{history_str}"
         f"{lang_str}"
@@ -242,7 +331,11 @@ async def route_slide(
     message = await anthropic_client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=500,
-        system=SYSTEM_PROMPT,
+        system=[{
+            "type": "text",
+            "text": SYSTEM_PROMPT,
+            "cache_control": {"type": "ephemeral"},
+        }],
         tools=TOOLS,
         messages=[{"role": "user", "content": user_message}],
     )
@@ -271,6 +364,60 @@ async def route_slide(
         "response": response_text,
         "tool_calls": tool_calls,
     }
+
+
+POPUP_TOOLS = frozenset({
+    "show_key_facts", "show_comparison_table", "show_timeline",
+    "show_citations",
+})
+
+_FILLER_SYSTEM = (
+    "You are an AI presenter. The system is about to display a visual popup "
+    "for the audience. Generate ONE short, natural filler sentence to say while "
+    "the visual loads. Match the popup type.\n"
+    "Examples:\n"
+    '  comparison_table → "Let me pull up a side-by-side comparison for you."\n'
+    '  timeline → "Let me show you how this evolved over time."\n'
+    '  key_facts → "Let me highlight the key points."\n'
+    '  citations → "Let me pull up the sources on that."\n'
+    "Vary your wording each time. Output ONLY the sentence, nothing else."
+)
+
+
+async def warm_filler_cache() -> None:
+    """Prime the Haiku prompt cache at startup so filler calls are fast."""
+    try:
+        await anthropic_client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1,
+            system=[{
+                "type": "text",
+                "text": _FILLER_SYSTEM,
+                "cache_control": {"type": "ephemeral"},
+            }],
+            messages=[{"role": "user", "content": "warm"}],
+        )
+        logger.info("Filler cache warmed (Haiku)")
+    except Exception as e:
+        logger.warning("Failed to warm filler cache: %s", e)
+
+
+async def generate_filler(transcript: str, popup_type: str) -> str:
+    """Generate a contextual filler sentence using Haiku (fast, cached)."""
+    message = await anthropic_client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=50,
+        system=[{
+            "type": "text",
+            "text": _FILLER_SYSTEM,
+            "cache_control": {"type": "ephemeral"},
+        }],
+        messages=[{"role": "user", "content": (
+            f"Popup type: {popup_type}\n"
+            f"User asked: \"{transcript}\""
+        )}],
+    )
+    return message.content[0].text.strip()
 
 
 async def summarize_conversation(history: list[dict]) -> str:

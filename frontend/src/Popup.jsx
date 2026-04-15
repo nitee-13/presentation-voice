@@ -245,7 +245,6 @@ const renderers = {
   key_facts: KeyFacts,
   comparison_table: ComparisonTable,
   timeline: Timeline,
-  concept_cloud: ConceptCloud,
   citations: Citations,
 };
 

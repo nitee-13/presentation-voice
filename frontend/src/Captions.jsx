@@ -130,7 +130,7 @@ export default function Captions({ agentTranscriptions, show, onToggle }) {
           }}
         >
           <p style={styles.line}>
-            <span style={{ ...styles.label, color: "#60a5fa" }}>AI</span>
+            <span style={{ ...styles.label, color: "#60a5fa" }}>Devi</span>
             {captionText}
           </p>
         </div>

@@ -210,7 +210,7 @@ export default function QAPanel() {
                   {entry.user}
                 </p>
                 <p style={styles.aiMsg}>
-                  <span style={{ ...styles.label, color: "#60a5fa" }}>AI</span>
+                  <span style={{ ...styles.label, color: "#60a5fa" }}>Devi</span>
                   {entry.assistant}
                 </p>
               </div>

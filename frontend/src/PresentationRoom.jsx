@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   useDataChannel,
   useVoiceAssistant,
+  useRoomContext,
+  useLocalParticipant,
 } from "@livekit/components-react";
 import { SLIDES } from "./slides";
 import SlideViewer from "./SlideViewer";
@@ -15,6 +17,9 @@ export default function PresentationRoom() {
   const [showCaptions, setShowCaptions] = useState(false);
   const [popupData, setPopupData] = useState(null);
   const { state: agentState, agentTranscriptions } = useVoiceAssistant();
+  const room = useRoomContext();
+  const { localParticipant } = useLocalParticipant();
+  const slideRef = useRef(0);
 
   const onDataReceived = useCallback((msg) => {
     try {
@@ -70,17 +75,34 @@ export default function PresentationRoom() {
 
   useDataChannel("ui_popup", onPopupReceived);
 
+  // Keep ref in sync with all slide changes (backend + keyboard)
+  useEffect(() => {
+    slideRef.current = currentSlide;
+  }, [currentSlide]);
+
   useEffect(() => {
     const handleKeyDown = (e) => {
+      const prev = slideRef.current;
+      let next;
       if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-        setCurrentSlide((prev) => Math.min(prev + 1, SLIDES.length - 1));
+        next = Math.min(prev + 1, SLIDES.length - 1);
       } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-        setCurrentSlide((prev) => Math.max(prev - 1, 0));
+        next = Math.max(prev - 1, 0);
+      } else {
+        return;
+      }
+      if (next !== prev) {
+        slideRef.current = next;
+        setCurrentSlide(next);
+        localParticipant?.publishData(
+          JSON.stringify({ slideIndex: next }),
+          { topic: "user_slide_nav" }
+        );
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [localParticipant]);
 
   return (
     <>
@@ -97,6 +119,31 @@ export default function PresentationRoom() {
         onToggle={() => setShowCaptions((prev) => !prev)}
       />
       <VoiceControls state={agentState} />
+      <button
+        onClick={() => room.disconnect()}
+        style={{
+          position: "fixed",
+          top: "1.5rem",
+          left: "2rem",
+          padding: "0.5rem 1rem",
+          borderRadius: "999px",
+          border: "1px solid rgba(255, 80, 80, 0.4)",
+          background: "rgba(255, 50, 50, 0.15)",
+          backdropFilter: "blur(10px)",
+          WebkitBackdropFilter: "blur(10px)",
+          color: "rgba(255, 255, 255, 0.8)",
+          fontSize: "0.8rem",
+          fontWeight: 500,
+          cursor: "pointer",
+          zIndex: 200,
+          transition: "all 0.2s",
+          letterSpacing: "0.5px",
+        }}
+        onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255, 50, 50, 0.35)")}
+        onMouseOut={(e) => (e.currentTarget.style.background = "rgba(255, 50, 50, 0.15)")}
+      >
+        End Session
+      </button>
     </>
   );
 }

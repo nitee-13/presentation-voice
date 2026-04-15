@@ -118,6 +118,10 @@ export default function App() {
       connect={true}
       audio={true}
       video={false}
+      onDisconnected={() => {
+        setToken(null);
+        setStarted(false);
+      }}
       style={{ height: "100vh", width: "100vw" }}
     >
       <RoomAudioRenderer />

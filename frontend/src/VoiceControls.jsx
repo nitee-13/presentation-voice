@@ -1,7 +1,7 @@
 const stateLabels = {
   listening: "Listening...",
   thinking: "Thinking...",
-  speaking: "AI Speaking...",
+  speaking: "Devi Speaking...",
 };
 
 const styles = {
