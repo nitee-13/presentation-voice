@@ -153,6 +153,7 @@ class PresentationAgent(Agent):
         self.is_presenting = False
         self.waiting_for_start = True
         self.paused = False
+        self.ended = False
         self.language: str | None = None
 
         # --- Feedback ---
@@ -287,6 +288,7 @@ class PresentationAgent(Agent):
                 logger.info("end_presentation — stopping narration")
                 self.is_presenting = False
                 self.paused = False
+                self.ended = True
                 self._resume_event.set()  # unblock narration loop if waiting
 
             else:
@@ -409,6 +411,8 @@ class PresentationAgent(Agent):
             # loop re-reads self._cursor at the top
 
         self.is_presenting = False
+
+        self.ended = True
 
         # Only speak outro if narration finished naturally (not ended by tool call)
         if self._cursor >= len(SLIDES):
@@ -624,6 +628,7 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
             current_slide=agent.current_slide,
             cursor=agent._cursor,
             paused=agent.paused,
+            ended=agent.ended,
             history=agent.history,
             language=agent.language,
         )

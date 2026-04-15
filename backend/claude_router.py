@@ -281,6 +281,7 @@ async def route_slide(
     current_slide: int,
     cursor: int,
     paused: bool,
+    ended: bool,
     history: list,
     language: str | None = None,
 ) -> dict:
@@ -295,10 +296,17 @@ async def route_slide(
 
     # Build presentation state block
     is_peeking = current_slide != cursor
+    if ended:
+        status = "ENDED"
+    elif paused:
+        status = "PAUSED"
+    else:
+        status = "PLAYING"
+
     state_parts = [
         f"Visible slide index: {current_slide}",
         f"Narration cursor index: {cursor}",
-        f"Status: {'PAUSED' if paused else 'PLAYING'}",
+        f"Status: {status}",
     ]
     if is_peeking:
         state_parts.append(
