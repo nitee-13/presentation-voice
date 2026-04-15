@@ -2,30 +2,185 @@ import json
 import logging
 
 from anthropic import AsyncAnthropic
-from pydantic import BaseModel, Field, field_validator
 
-from slides import SYSTEM_PROMPT
+from slides import SLIDES, SYSTEM_PROMPT
 
 logger = logging.getLogger("presentation-agent.router")
 anthropic_client = AsyncAnthropic()
 
+_MAX_SLIDE_INDEX = len(SLIDES) - 1
 
-class SlideRouteResponse(BaseModel):
-    """Validated response from Claude for slide routing."""
-    slideIndex: int = Field(ge=0, le=5, description="Target slide index (0-5)")
-    response: str = Field(min_length=1, description="Spoken response text")
-    shouldChangeSlide: bool = Field(default=False, description="Whether to navigate to a different slide")
+# ---------------------------------------------------------------------------
+# Tool definitions for direct Anthropic API calls
+# ---------------------------------------------------------------------------
 
-    @field_validator("slideIndex")
-    @classmethod
-    def clamp_slide_index(cls, v: int) -> int:
-        return max(0, min(5, v))
-
-    @field_validator("response")
-    @classmethod
-    def clean_response(cls, v: str) -> str:
-        # Strip markdown artifacts that Claude sometimes adds
-        return v.strip().strip("`").strip('"')
+TOOLS = [
+    {
+        "name": "navigate_to_slide",
+        "description": (
+            "Navigate to a specific slide in the presentation. Call this when the user "
+            "asks to change slides, go to a particular slide, or asks about a topic "
+            "covered on a different slide."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "slide_index": {
+                    "type": "integer",
+                    "description": "0-based slide index to navigate to.",
+                },
+            },
+            "required": ["slide_index"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "show_key_facts",
+        "description": (
+            "Display a key facts popup on the user's screen. Use this to highlight "
+            "important facts, bullet points, or takeaways related to the current topic."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Popup title."},
+                "facts": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of fact strings.",
+                },
+            },
+            "required": ["title", "facts"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "show_comparison_table",
+        "description": (
+            "Display a comparison table popup. Use this when comparing concepts, "
+            "technologies, approaches, or any side-by-side information."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Table title."},
+                "columns": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Column header names.",
+                },
+                "rows": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "description": "Row data as list of lists.",
+                },
+            },
+            "required": ["title", "columns", "rows"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "show_timeline",
+        "description": (
+            "Display a timeline visualization popup. Use this for historical "
+            "progressions or roadmaps."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Timeline title."},
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "year": {"type": "string"},
+                            "label": {"type": "string"},
+                        },
+                        "required": ["year", "label"],
+                        "additionalProperties": False,
+                    },
+                    "description": "List of timeline events.",
+                },
+            },
+            "required": ["title", "events"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "show_concept_cloud",
+        "description": (
+            "Display a concept cloud (word cloud) popup. Use this to visualize "
+            "related terms, keywords, or ideas around a topic."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Cloud title."},
+                "concepts": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of concept strings.",
+                },
+            },
+            "required": ["title", "concepts"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "show_citations",
+        "description": (
+            "Display source citations popup. Use this when referencing research papers, "
+            "articles, or other authoritative sources."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Citations title."},
+                "citations": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of citation strings.",
+                },
+            },
+            "required": ["title", "citations"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "pause_presentation",
+        "description": (
+            "Pause the auto-narration of the presentation. Call this when the user "
+            "wants to stop, take a break, read the slide, think, or otherwise pause. "
+            "Examples: 'hold on', 'wait', 'let me read this', 'pause', 'stop for now', "
+            "'take your time', 'give me a moment'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "resume_presentation",
+        "description": (
+            "Resume the auto-narration from where it left off. Call this when the user "
+            "wants to continue the presentation after a pause or Q&A. "
+            "Examples: 'continue', 'go on', 'keep going', 'resume', 'carry on', "
+            "'okay next', 'I'm ready'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+        },
+    },
+]
 
 
 async def route_slide(
@@ -34,7 +189,14 @@ async def route_slide(
     history: list,
     language: str | None = None,
 ) -> dict:
-    """Call Claude to decide which slide to show and what to say."""
+    """Call Claude with tools to decide navigation, popups, and what to say.
+
+    Returns:
+        {
+            "response": str,           # spoken text
+            "tool_calls": list[dict],   # tool_use blocks to execute
+        }
+    """
 
     history_str = ""
     if history:
@@ -59,27 +221,36 @@ async def route_slide(
 
     message = await anthropic_client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=300,
+        max_tokens=500,
         system=SYSTEM_PROMPT,
+        tools=TOOLS,
         messages=[{"role": "user", "content": user_message}],
     )
 
-    response_text = message.content[0].text.strip()
-    logger.info("Claude raw response: %s", response_text)
+    # Extract text and tool_use blocks from response
+    response_text = ""
+    tool_calls = []
 
-    try:
-        parsed = SlideRouteResponse.model_validate_json(response_text)
-    except Exception as e:
-        logger.warning("Pydantic validation failed (%s), falling back to defaults", e)
-        parsed = SlideRouteResponse(
-            slideIndex=current_slide,
-            response=response_text,
-            shouldChangeSlide=False,
-        )
+    for block in message.content:
+        if block.type == "text":
+            response_text += block.text
+        elif block.type == "tool_use":
+            tool_calls.append({
+                "name": block.name,
+                "input": block.input,
+            })
 
-    result = parsed.model_dump()
-    logger.info("Route result: slide=%d, change=%s", result["slideIndex"], result["shouldChangeSlide"])
-    return result
+    response_text = response_text.strip()
+    logger.info(
+        "Route result: response=%s, tools=%s",
+        response_text[:80] if response_text else "(none)",
+        [tc["name"] for tc in tool_calls],
+    )
+
+    return {
+        "response": response_text,
+        "tool_calls": tool_calls,
+    }
 
 
 async def summarize_conversation(history: list[dict]) -> str:

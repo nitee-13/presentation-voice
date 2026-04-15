@@ -6,65 +6,22 @@ const styles = {
     width: "100vw",
     height: "100vh",
     display: "flex",
-    flexDirection: "column",
     justifyContent: "center",
     alignItems: "center",
     overflow: "hidden",
-    transition: "background 0.6s ease-in-out",
+    background: "#1a1a2e",
   },
-  content: {
-    maxWidth: "900px",
-    width: "90%",
-    padding: "2rem",
-    transition: "opacity 0.5s ease-in-out, transform 0.5s ease-in-out",
+  image: {
+    width: "100vw",
+    height: "100vh",
+    objectFit: "contain",
+    transition: "opacity 0.5s ease-in-out",
   },
-  contentVisible: {
+  imageVisible: {
     opacity: 1,
-    transform: "translateY(0)",
   },
-  contentHidden: {
+  imageHidden: {
     opacity: 0,
-    transform: "translateY(30px)",
-  },
-  subtitle: {
-    fontSize: "1rem",
-    fontWeight: 500,
-    textTransform: "uppercase",
-    letterSpacing: "3px",
-    color: "rgba(255, 255, 255, 0.6)",
-    marginBottom: "0.75rem",
-  },
-  title: {
-    fontSize: "clamp(2rem, 5vw, 3.5rem)",
-    fontWeight: 700,
-    color: "#ffffff",
-    marginBottom: "2rem",
-    lineHeight: 1.2,
-  },
-  divider: {
-    width: "60px",
-    height: "3px",
-    background: "rgba(255, 255, 255, 0.4)",
-    borderRadius: "2px",
-    marginBottom: "2rem",
-  },
-  list: {
-    listStyle: "none",
-    padding: 0,
-    margin: 0,
-  },
-  listItem: {
-    fontSize: "clamp(1rem, 2vw, 1.25rem)",
-    color: "rgba(255, 255, 255, 0.85)",
-    lineHeight: 1.8,
-    paddingLeft: "1.5rem",
-    position: "relative",
-    marginBottom: "0.5rem",
-  },
-  bullet: {
-    position: "absolute",
-    left: 0,
-    color: "rgba(255, 255, 255, 0.4)",
   },
   counter: {
     position: "fixed",
@@ -91,25 +48,15 @@ export default function SlideViewer({ slide, index, total }) {
   }, [slide]);
 
   return (
-    <div style={{ ...styles.container, background: displaySlide.gradient }}>
-      <div
+    <div style={styles.container}>
+      <img
+        src={displaySlide.image}
+        alt={displaySlide.title || `Slide ${index + 1}`}
         style={{
-          ...styles.content,
-          ...(visible ? styles.contentVisible : styles.contentHidden),
+          ...styles.image,
+          ...(visible ? styles.imageVisible : styles.imageHidden),
         }}
-      >
-        <div style={styles.subtitle}>{displaySlide.subtitle}</div>
-        <h1 style={styles.title}>{displaySlide.title}</h1>
-        <div style={styles.divider} />
-        <ul style={styles.list}>
-          {displaySlide.content.map((item, i) => (
-            <li key={i} style={styles.listItem}>
-              <span style={styles.bullet}>&#x2022;</span>
-              {item}
-            </li>
-          ))}
-        </ul>
-      </div>
+      />
       <div style={styles.counter}>
         {index + 1} / {total}
       </div>

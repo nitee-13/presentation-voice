@@ -1,0 +1,189 @@
+[
+  {
+    "index": 0,
+    "title": "Introduction to AI: Exploring the Basics and Future of Artificial Intelligence",
+    "extracted_text": "Introduction\nto AI\nEX P L OR I N G THE B AS I C S\nA ND FU TU R E OF\nA RT IF I CI A L I NT EL L I GEN C E",
+    "narration": "Welcome, everyone, and thank you for joining us today for this introduction to Artificial Intelligence. As you can see on this slide, we have a striking image of a humanoid robot sitting in what looks like a waiting room, calmly working on a laptop — and I think that image really sets the tone for what we're going to explore together. AI is no longer science fiction; it's becoming part of our everyday environments, our workplaces, and our lives. Over the course of this presentation, we'll be covering the foundational concepts behind AI — what it is, how it works, and why it matters. We'll also look ahead at where this technology is heading and what that means for society, industry, and you personally. So let's dive in and start building a solid understanding of one of the most transformative technologies of our time.",
+    "keywords": [
+      "artificial intelligence",
+      "AI introduction",
+      "AI basics",
+      "future of AI",
+      "machine learning overview",
+      "AI technology",
+      "humanoid robot",
+      "AI fundamentals"
+    ],
+    "image": "slide_0.png"
+  },
+  {
+    "index": 1,
+    "title": "What is AI? – Core Concepts and Capabilities",
+    "extracted_text": "What is AI?\nDefinition of AI\nArtificial Intelligence is a branch of computer science that aims to create systems\ncapable of intelligent behavior.\nCore Tasks of AI\nAI systems perform tasks like learning, understanding language, recognizing\npatterns, and problem-solving.\nHuman Intelligence Simulation\nAI aims to simulate human intelligence by creating systems that can analyze data\nand make decisions.",
+    "narration": "So let's start with the basics — what exactly is Artificial Intelligence? At its core, AI is a branch of computer science focused on building systems that can exhibit intelligent behavior, much like the digital brain you see illustrated on the left. These systems are designed to perform tasks that we typically associate with human thinking — things like learning from experience, understanding and generating language, recognizing patterns, and solving complex problems. The visual here really captures that idea well — gears and circuits working together inside a human-like mind, symbolizing the fusion of machine precision and human-like cognition. Beyond just performing tasks, AI ultimately aims to simulate human intelligence by creating systems that can analyze large amounts of data and make informed decisions on their own. Think of it as teaching machines to think, reason, and adapt — and that's exactly what makes AI such a transformative technology today.",
+    "keywords": [
+      "artificial intelligence",
+      "AI definition",
+      "computer science",
+      "intelligent behavior",
+      "machine learning",
+      "pattern recognition",
+      "human intelligence simulation",
+      "decision making"
+    ],
+    "image": "slide_1.png"
+  },
+  {
+    "index": 2,
+    "title": "The Evolution of AI: A Timeline of Human Communication",
+    "extracted_text": "The Evolution of AI\n• Spoken Word (100,000 – 50,000 BCE)\n• Written Language (3300 BCE)\n• Printing Press (1440 CE)\n• Telegraph and Telephone (19th Century)\n• Radio and Television (Early 20th Century)\n• Computers and Digital Communication (Mid-20th Century)\n• Mobile Technology (Late 20th Century)\n• Artificial Intelligence (Mid-20th Century - Present – Beyond)",
+    "narration": "The cartoon on the left says it all — from ape to automation, human progress has always been about finding better ways to communicate and process information. What's fascinating is that AI didn't appear out of nowhere; it's the latest step in a very long journey. We started with the spoken word roughly 100,000 years ago, then developed written language around 3300 BCE, and Gutenberg's printing press in 1440 democratized information at a scale never seen before. Fast forward through the telegraph, telephone, radio, and television, and you can see how each century brought an exponential leap in how we share knowledge. The 20th century alone gave us computers, digital communication, and mobile technology — each one building on the last. And now, Artificial Intelligence, which began taking shape in the mid-20th century, is not just the present — it's a technology that stretches into a future we're still defining.",
+    "keywords": [
+      "evolution of AI",
+      "history of communication",
+      "spoken word",
+      "written language",
+      "printing press",
+      "telegraph telephone",
+      "computers digital communication",
+      "artificial intelligence timeline"
+    ],
+    "image": "slide_2.png"
+  },
+  {
+    "index": 3,
+    "title": "A Brief History of AI",
+    "extracted_text": "Start of AI Research\nThe journey of AI began in 1956, setting the\nA Brief History of\nstage for future advancements in\ncomputational intelligence.\nAI\nAdvancements in AI\nOver the decades, AI has accelerated with\nkey advancements in machine learning,\nneural networks, and deep learning\ntechnologies.\nImpact of AI Evolution\nThe evolution of AI technologies has\nsignificantly transformed various industries,\nadvancing computational tasks and\nautomation.",
+    "narration": "Let's take a step back and look at how artificial intelligence got to where it is today. It all started in 1956, when AI research was formally established — you can almost picture those early researchers filling notebooks with ideas that would change the world, much like the aged manuscripts shown here. Over the following decades, AI began to accelerate rapidly, with major breakthroughs in machine learning, neural networks, and deep learning — technologies that essentially taught computers to think and recognize patterns much like a human brain. The glowing neural network image on this slide really captures that idea of a machine mind coming to life. And the impact of all this evolution has been enormous — AI has transformed industries ranging from healthcare to finance to manufacturing, driving automation and computational power to new heights. As we move forward in this presentation, keep this historical arc in mind, because understanding where AI came from helps us appreciate just how far — and how fast — it continues to go.",
+    "keywords": [
+      "history of AI",
+      "AI research 1956",
+      "machine learning",
+      "neural networks",
+      "deep learning",
+      "AI advancements",
+      "AI evolution",
+      "industry transformation"
+    ],
+    "image": "slide_3.png"
+  },
+  {
+    "index": 4,
+    "title": "Key Concepts in AI",
+    "extracted_text": "Machine Learning\nMachine learning involves algorithms that\nKey Concepts in\nlearn from data to make predictions or\ndecisions without explicit programming.\nAI\nNatural Language Processing\nNatural language processing enables\nmachines to understand and interpret\nhuman language, allowing for better\nhuman-computer interaction.\nNeural Networks\nNeural networks are inspired by human\nbrain functions and are designed to enhance\nlearning efficiency in AI systems.",
+    "narration": "Now let's dive into some of the core concepts that power modern artificial intelligence. First, we have Machine Learning — this is where algorithms analyze data and learn from it to make predictions or decisions, all without being explicitly programmed for every scenario. Next is Natural Language Processing, or NLP, which is what allows machines to actually understand and interpret human language — it's the technology behind chatbots, voice assistants, and translation tools that make human-computer interaction feel much more natural. Finally, we have Neural Networks, which you can see visualized here as an interconnected web of nodes — these systems are inspired by how the human brain works, using layered connections to improve how AI learns and processes information. Together, these three concepts form the foundation of most AI applications you encounter today, and understanding them gives us a solid framework for everything we'll explore going forward.",
+    "keywords": [
+      "machine learning",
+      "natural language processing",
+      "neural networks",
+      "NLP",
+      "AI concepts",
+      "algorithms",
+      "deep learning",
+      "human-computer interaction"
+    ],
+    "image": "slide_4.png"
+  },
+  {
+    "index": 5,
+    "title": "Machine Learning: How Systems Learn and Predict",
+    "extracted_text": "Machine Learning\nUnderstanding Machine Learning\nMachine Learning is a branch of AI focused on the development of algorithms that\nenable systems to learn from data.\nLearning from Data\nThe systems use algorithms to analyze input data, identify patterns, and improve\ntheir performance over time, adapting to new information.\nMaking Predictions\nMachine Learning models are capable of making predictions based on learned\npatterns, impacting various fields like finance, healthcare, and marketing.",
+    "narration": "Now let's dive into Machine Learning, one of the most transformative branches of artificial intelligence. As you can see from the image on the left — that vivid visualization of streaming data, binary code, and glowing neural pathways — Machine Learning is all about processing massive amounts of information at incredible speed. At its core, Machine Learning develops algorithms that enable systems to learn directly from data, rather than being explicitly programmed for every task. These systems continuously analyze input data, identify hidden patterns, and improve their performance over time as they're exposed to new information. What makes this so powerful is the end result: Machine Learning models can make accurate predictions based on what they've learned, and this capability is already transforming fields like finance, healthcare, and marketing. In essence, Machine Learning is the engine driving intelligent, adaptive systems across virtually every industry today.",
+    "keywords": [
+      "machine learning",
+      "AI algorithms",
+      "learning from data",
+      "pattern recognition",
+      "predictions",
+      "artificial intelligence",
+      "finance healthcare marketing",
+      "adaptive systems"
+    ],
+    "image": "slide_5.png"
+  },
+  {
+    "index": 6,
+    "title": "Natural Language Processing: Bridging Humans and Machines",
+    "extracted_text": "Natural Language Processing\nAI and Human Interaction\nNLP facilitates the interaction between computers and humans, making\ncommunication smoother and more intuitive.\nUnderstanding Natural Language\nMachines equipped with NLP can read and comprehend text and voice inputs,\nenhancing user experience and efficiency.\nResponding to Inputs\nNLP enables machines to respond appropriately to user queries, providing\nrelevant information and solutions.",
+    "narration": "This slide focuses on Natural Language Processing, or NLP, which is one of the most exciting and impactful areas of artificial intelligence today. As you can see in the visual, NLP sits at the intersection of human communication and machine intelligence — represented here by that glowing digital human figure surrounded by streams of data and interconnected networks. At its core, NLP is what allows computers and humans to interact in a natural, intuitive way, rather than requiring people to learn complex commands or code. Machines powered by NLP can actually read and comprehend both text and voice inputs, which dramatically improves the user experience across everything from search engines to virtual assistants. And crucially, NLP doesn't just understand language — it enables machines to respond appropriately, delivering relevant answers and solutions to whatever the user needs. Think of every time you've asked Siri, Alexa, or a chatbot a question and gotten a useful answer — that's NLP working behind the scenes.",
+    "keywords": [
+      "natural language processing",
+      "NLP",
+      "AI human interaction",
+      "voice recognition",
+      "text comprehension",
+      "machine communication",
+      "chatbot",
+      "user queries"
+    ],
+    "image": "slide_6.png"
+  },
+  {
+    "index": 7,
+    "title": "AI Applications Across Industries",
+    "extracted_text": "Applications of AI\nHealthcare Innovations\nAI is revolutionizing healthcare through predictive analytics, improving\npatient outcomes and operational efficiency.\nFinance Transformation\nIn finance, AI enhances decision-making and risk management through\ndata analysis and predictive modeling.\nTransportation Advancements\nAI is optimizing transportation systems through autonomous vehicles and\nsmart traffic management.\nEntertainment Evolution\nAI is changing entertainment by personalizing content recommendations\nand enhancing user experiences.",
+    "narration": "As you can see on this slide, AI isn't confined to just one area — it's transforming virtually every major industry around us. The image here beautifully illustrates that interconnected reality, showing an AI brain at the center linked to symbols of healthcare, finance, transportation, smart homes, and more — all set against a modern cityscape. Starting with healthcare, AI is using predictive analytics to improve patient outcomes and make hospital operations more efficient. In finance, it's strengthening decision-making and risk management through powerful data analysis and predictive modeling. On the roads, AI is driving the future through autonomous vehicles and intelligent traffic systems that make transportation safer and smarter. And even in our leisure time, AI is at work — personalizing the shows we watch and the music we hear, creating experiences that feel uniquely tailored to each of us.",
+    "keywords": [
+      "AI applications",
+      "healthcare innovations",
+      "finance transformation",
+      "transportation advancements",
+      "entertainment evolution",
+      "predictive analytics",
+      "autonomous vehicles",
+      "personalized recommendations"
+    ],
+    "image": "slide_7.png"
+  },
+  {
+    "index": 8,
+    "title": "AI in Healthcare: Diagnostics, Treatment, and Predictive Analytics",
+    "extracted_text": "AI in Healthcare\nAI for Diagnostics\nAI technologies can significantly improve the accuracy and speed of medical\ndiagnostics, leading to better patient care.\nPersonalized Treatment Plans\nUsing AI, healthcare providers can create personalized treatment plans based on\nindividual patient data and needs.\nPredictive Analytics in Healthcare\nAI-driven predictive analytics helps in anticipating patient needs and improving\noutcomes through proactive measures.",
+    "narration": "As we move into the world of AI in healthcare, the possibilities are truly exciting. On the left, you can see a physician using a digital tablet surrounded by AI-driven data visualizations — including a DNA strand and global network imagery — which really captures how deeply technology is becoming embedded in modern medicine. Starting with diagnostics, AI technologies are dramatically improving both the accuracy and speed at which medical conditions are identified, which directly translates to better outcomes for patients. Beyond diagnosis, AI enables healthcare providers to build highly personalized treatment plans tailored to each individual's unique data and medical history, moving us away from a one-size-fits-all approach. Finally, predictive analytics powered by AI allows providers to anticipate patient needs before problems escalate, enabling proactive rather than reactive care. Together, these three capabilities represent a fundamental shift in how healthcare is delivered — smarter, faster, and more patient-centered than ever before.",
+    "keywords": [
+      "AI in healthcare",
+      "medical diagnostics",
+      "personalized treatment",
+      "predictive analytics",
+      "patient care",
+      "machine learning medicine",
+      "clinical AI",
+      "healthcare technology"
+    ],
+    "image": "slide_8.png"
+  },
+  {
+    "index": 9,
+    "title": "AI in Transportation: Smarter Roads Ahead",
+    "extracted_text": "AI in Transportation\nAutonomous Vehicles\nAutonomous vehicles are transforming the way we travel by enhancing safety\nand efficiency on the roads.\nTraffic Management Systems\nAI-powered traffic management systems optimize traffic flow, reduce\ncongestion, and improve overall travel efficiency in urban areas.\nRoute Optimization\nAI algorithms help in optimizing routes for logistics and personal travel,\nenhancing time and fuel efficiency.",
+    "narration": "On this slide, we're looking at how artificial intelligence is reshaping the way we move from place to place. As you can see in the image, vehicles on a highway are surrounded by those glowing cyan sensor rings — this is a visualization of how autonomous vehicles use AI to detect and communicate with their surroundings in real time. These self-driving systems are making roads safer and more efficient by reducing human error. Beyond autonomous vehicles, AI is also powering smart traffic management systems that analyze flow patterns and reduce congestion across entire cities. And finally, route optimization algorithms are helping both logistics companies and everyday commuters find the fastest, most fuel-efficient paths to their destinations. Together, these three applications show just how deeply AI is becoming embedded in the future of transportation.",
+    "keywords": [
+      "autonomous vehicles",
+      "self-driving cars",
+      "traffic management",
+      "route optimization",
+      "AI transportation",
+      "smart roads",
+      "vehicle sensors",
+      "logistics efficiency"
+    ],
+    "image": "slide_9.png"
+  },
+  {
+    "index": 10,
+    "title": "The Future of AI: Ethics, Explainability, and Collaboration",
+    "extracted_text": "The Future of AI\nAdvancements in Ethical AI\nThe future of AI includes a focus on ethical considerations, ensuring fairness and\ntransparency in AI systems.\nExplainable AI\nExplainable AI will provide insights into AI decision-making processes,\nenhancing trust and understanding among users.\nMachine-Human Collaboration\nImproved collaboration between machines and humans will lead to more effective\nand productive workflows in various sectors.",
+    "narration": "As we look ahead, the future of AI is being shaped by three powerful trends that will define how we develop and interact with these systems. First, ethical AI is taking center stage — developers and organizations are prioritizing fairness and transparency to ensure AI systems serve everyone equitably. Next, Explainable AI is emerging as a critical capability, giving users clear insights into how AI arrives at its decisions, which builds trust and accountability. Then there's the exciting frontier of machine-human collaboration — not AI replacing humans, but working alongside us to make workflows smarter and more productive across industries. The image on this slide beautifully captures that idea, showing two faces — one human, one AI — facing each other in a moment of connection, surrounded by neural networks and energy, symbolizing the merging of human and machine intelligence. Together, these trends point toward an AI future that is not only more powerful, but more responsible, understandable, and deeply human-centered.",
+    "keywords": [
+      "ethical AI",
+      "explainable AI",
+      "machine-human collaboration",
+      "AI transparency",
+      "AI fairness",
+      "AI decision-making",
+      "future of AI",
+      "human-AI interaction"
+    ],
+    "image": "slide_10.png"
+  }
+]

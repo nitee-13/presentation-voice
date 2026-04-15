@@ -3,4 +3,8 @@ uvicorn
 livekit-agents[inference]
 livekit-api
 anthropic
+livekit-plugins-anthropic
 python-dotenv
+pydantic
+pdf2image
+pdfplumber

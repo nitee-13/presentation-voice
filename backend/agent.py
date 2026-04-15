@@ -1,13 +1,14 @@
 import asyncio
 import json
 import logging
+import re
 
 from dotenv import load_dotenv
 from livekit.agents import AgentSession, AgentServer, JobContext, inference, cli
 from livekit.agents.voice import Agent
 
 from claude_router import route_slide, summarize_conversation
-from slides import SLIDES
+from slides import SLIDES, SYSTEM_PROMPT
 
 load_dotenv()
 
@@ -33,6 +34,12 @@ def is_filler_only(text: str) -> bool:
     return all(w in FILLER_WORDS for w in words)
 
 
+def split_into_sentences(text: str) -> list[str]:
+    """Split narration text into sentences for granular tracking."""
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    return [s for s in sentences if s.strip()]
+
+
 LANGUAGE_TRIGGERS = {
     "spanish": "Spanish", "español": "Spanish",
     "french": "French", "français": "French",
@@ -50,7 +57,6 @@ LANGUAGE_TRIGGERS = {
 def detect_language_switch(text: str) -> str | None:
     """Detect if the user wants to switch language. Returns language name or None."""
     lower = text.lower()
-    # Match patterns like "present in spanish", "switch to french", "speak in german"
     for trigger in ["present in", "switch to", "speak in", "change to", "respond in", "use"]:
         if trigger in lower:
             rest = lower.split(trigger, 1)[1].strip().rstrip(".")
@@ -66,12 +72,24 @@ class PresentationAgent(Agent):
         self.current_slide = 0
         self.history: list[dict] = []
         self.is_presenting = False
-        self.interrupted = False
-        self.language: str | None = None  # None = default English
+        self.paused = False           # True when user asked to pause
+        self.language: str | None = None
+
+        # Sentence-level narration tracking
+        self._sentence_index = 0      # next sentence to speak on current slide
+        self._navigated = False       # True when navigate_to_slide was called
+
         # Debounce state
         self._pending_parts: list[str] = []
         self._debounce_task: asyncio.Task | None = None
         self._is_processing = False
+
+        # Event to wake up the presentation loop when resumed
+        self._resume_event = asyncio.Event()
+
+    # ------------------------------------------------------------------
+    # Data channel helpers
+    # ------------------------------------------------------------------
 
     async def send_slide(self, index: int) -> None:
         """Send slide change event to the frontend."""
@@ -81,47 +99,185 @@ class PresentationAgent(Agent):
             topic="slide_change",
         )
 
-    async def present_slide(self, index: int) -> None:
-        """Narrate a single slide."""
+    async def publish_popup(self, payload: dict) -> None:
+        """Send a UI popup event to the frontend."""
+        await self.session.room_io.room.local_participant.publish_data(
+            json.dumps(payload),
+            topic="ui_popup",
+        )
+
+    # ------------------------------------------------------------------
+    # Tool execution — runs tool_use blocks returned by Claude
+    # ------------------------------------------------------------------
+
+    async def execute_tool_calls(self, tool_calls: list[dict]) -> None:
+        """Execute tool calls from the direct Claude API response."""
+        for tc in tool_calls:
+            name = tc["name"]
+            inp = tc["input"]
+
+            if name == "navigate_to_slide":
+                slide_index = inp["slide_index"]
+                if 0 <= slide_index < len(SLIDES):
+                    logger.info("navigate_to_slide: %d → %d", self.current_slide, slide_index)
+                    await self.send_slide(slide_index)
+                    self._navigated = True
+                    self._sentence_index = 0  # reset sentence tracking for new slide
+                    self.paused = False        # navigating auto-unpauses
+
+            elif name == "pause_presentation":
+                logger.info("pause_presentation")
+                self.paused = True
+
+            elif name == "resume_presentation":
+                logger.info("resume_presentation (sentence %d)", self._sentence_index)
+                self.paused = False
+                self._resume_event.set()
+
+            elif name == "show_key_facts":
+                logger.info("show_key_facts: %s", inp.get("title"))
+                await self.publish_popup({
+                    "type": "key_facts",
+                    "title": inp["title"],
+                    "facts": inp["facts"],
+                    "ttl": 10,
+                })
+
+            elif name == "show_comparison_table":
+                logger.info("show_comparison_table: %s", inp.get("title"))
+                await self.publish_popup({
+                    "type": "comparison_table",
+                    "title": inp["title"],
+                    "columns": inp["columns"],
+                    "rows": inp["rows"],
+                    "ttl": 12,
+                })
+
+            elif name == "show_timeline":
+                logger.info("show_timeline: %s", inp.get("title"))
+                await self.publish_popup({
+                    "type": "timeline",
+                    "title": inp["title"],
+                    "events": inp["events"],
+                    "ttl": 12,
+                })
+
+            elif name == "show_concept_cloud":
+                logger.info("show_concept_cloud: %s", inp.get("title"))
+                await self.publish_popup({
+                    "type": "concept_cloud",
+                    "title": inp["title"],
+                    "concepts": inp["concepts"],
+                    "ttl": 10,
+                })
+
+            elif name == "show_citations":
+                logger.info("show_citations: %s", inp.get("title"))
+                await self.publish_popup({
+                    "type": "citations",
+                    "title": inp["title"],
+                    "citations": inp["citations"],
+                    "ttl": 10,
+                })
+
+            else:
+                logger.warning("Unknown tool call: %s", name)
+
+    # ------------------------------------------------------------------
+    # Sentence-level slide narration
+    # ------------------------------------------------------------------
+
+    async def narrate_slide(self, index: int) -> None:
+        """Narrate a slide sentence by sentence, tracking progress.
+
+        If the user interrupts (STT fires), session.say returns early
+        because allow_interruptions=True. We record how far we got
+        so we can resume later.
+        """
         if index < 0 or index >= len(SLIDES):
             return
 
         slide = SLIDES[index]
-        logger.info("Presenting slide %d: %s", index, slide["title"])
+        sentences = split_into_sentences(slide["narration"])
 
         await self.send_slide(index)
-        speech = await self.session.say(slide["narration"], allow_interruptions=True)
-        await speech.wait_for_playout()
+        logger.info("Narrating slide %d: %s (from sentence %d/%d)",
+                     index, slide["title"], self._sentence_index, len(sentences))
+
+        while self._sentence_index < len(sentences):
+            # If paused, wait until resume_presentation is called
+            if self.paused:
+                logger.info("Paused at sentence %d/%d on slide %d",
+                            self._sentence_index, len(sentences), index)
+                self._resume_event.clear()
+                await self._resume_event.wait()
+                logger.info("Resumed at sentence %d/%d on slide %d",
+                            self._sentence_index, len(sentences), index)
+
+            # If navigated to a different slide, stop narrating this one
+            if self._navigated:
+                return
+
+            # If currently processing a Q&A, wait for it to finish
+            if self._is_processing:
+                while self._is_processing:
+                    await asyncio.sleep(0.2)
+                # After Q&A, check if we navigated or paused
+                if self._navigated or self.paused:
+                    return
+                # Otherwise continue from where we left off
+
+            sentence = sentences[self._sentence_index]
+            speech = await self.session.say(sentence, allow_interruptions=True)
+            await speech.wait_for_playout()
+
+            # Only advance if we weren't interrupted mid-sentence
+            if not self._is_processing and not self._navigated and not self.paused:
+                self._sentence_index += 1
+
+        # Slide fully narrated — reset for next slide
+        self._sentence_index = 0
+
+    # ------------------------------------------------------------------
+    # Presentation loop
+    # ------------------------------------------------------------------
 
     async def run_presentation(self) -> None:
         """Auto-narrate through all slides sequentially."""
         self.is_presenting = True
+        slide_index = 0
 
-        for i in range(len(SLIDES)):
-            if self.interrupted:
-                # Wait until the question is handled before resuming
-                self.interrupted = False
-                # After answering, continue from wherever current_slide is
-                i = self.current_slide
+        while slide_index < len(SLIDES):
+            self._navigated = False
 
-            await self.present_slide(i)
+            await self.narrate_slide(slide_index)
+
+            # If navigated during narration, jump to the new slide
+            if self._navigated:
+                self._navigated = False
+                slide_index = self.current_slide
+                logger.info("Jumping to slide %d after navigation", slide_index)
+                continue
 
             # Small pause between slides
             await asyncio.sleep(1.5)
+            slide_index += 1
 
         self.is_presenting = False
-        logger.info("Presentation complete")
+        logger.info("Presentation complete — all slides narrated")
 
     async def on_enter(self) -> None:
         """Start the full presentation when agent enters."""
         logger.info("Agent entered — starting full presentation")
-        # Run presentation in background so the agent can handle events
         asyncio.ensure_future(self.run_presentation())
 
 
+# ---------------------------------------------------------------------------
+# Transcript processing (debounce → Claude direct API → execute tools → TTS)
+# ---------------------------------------------------------------------------
+
 async def process_full_transcript(agent: PresentationAgent, session: AgentSession) -> None:
     """Process the accumulated transcript after debounce delay."""
-    # Grab all accumulated parts and reset
     full_transcript = " ".join(agent._pending_parts).strip()
     agent._pending_parts = []
 
@@ -129,19 +285,16 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
         agent._is_processing = False
         return
 
-    # Ignore filler-only utterances — just stay quiet
     if is_filler_only(full_transcript):
         logger.info("Ignoring filler-only transcript: '%s'", full_transcript)
         agent._is_processing = False
         return
 
     agent._is_processing = True
-    logger.info("Processing (debounced): '%s' (slide: %d)", full_transcript, agent.current_slide)
+    logger.info("Processing: '%s' (slide: %d, sentence: %d)",
+                full_transcript, agent.current_slide, agent._sentence_index)
 
-    # Mark as interrupted so presentation loop knows
-    agent.interrupted = True
-
-    # Check for language switch command
+    # Language switch
     new_lang = detect_language_switch(full_transcript)
     if new_lang:
         agent.language = None if new_lang == "English" else new_lang
@@ -151,7 +304,7 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
         agent._is_processing = False
         return
 
-    # Check for summarize command
+    # Summarize command
     lower = full_transcript.lower().strip()
     is_summarize = any(kw in lower for kw in [
         "summarize", "summarise", "recap", "summary",
@@ -170,6 +323,7 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
         agent._is_processing = False
         return
 
+    # Route via direct Claude API with tools
     try:
         result = await route_slide(
             transcript=full_transcript,
@@ -179,45 +333,53 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
         )
     except Exception as e:
         logger.error("Claude routing failed: %s", e, exc_info=True)
-        await session.say(
-            "Sorry, I had trouble processing that. Could you repeat your question?"
-        )
+        await session.say("Sorry, I had trouble processing that. Could you repeat your question?")
         agent._is_processing = False
         return
 
-    # Store conversation turn with slide context for follow-up awareness
+    tool_calls = result.get("tool_calls", [])
+    response = result.get("response", "")
+
+    # Split tool calls: popups fire immediately, navigation/pause/resume after speech
+    popup_calls = [tc for tc in tool_calls if tc["name"] not in (
+        "navigate_to_slide", "pause_presentation", "resume_presentation",
+    )]
+    control_calls = [tc for tc in tool_calls if tc["name"] in (
+        "navigate_to_slide", "pause_presentation", "resume_presentation",
+    )]
+
+    # Execute popup tool calls immediately
+    if popup_calls:
+        await agent.execute_tool_calls(popup_calls)
+
+    # Speak the response
+    if response:
+        speech = await session.say(response, allow_interruptions=True)
+        await speech.wait_for_playout()
+
+    # Execute control tool calls after speech (navigate, pause, resume)
+    if control_calls:
+        await agent.execute_tool_calls(control_calls)
+
+    # Store conversation turn with slide context
     slide = SLIDES[agent.current_slide]
     entry = {
         "user": full_transcript,
-        "assistant": result.get("response", ""),
+        "assistant": response,
         "slide_index": agent.current_slide,
         "slide_title": slide["title"],
     }
     agent.history.append(entry)
 
-    # Send Q&A entry to frontend for the history panel
+    # Send Q&A entry to frontend history panel
     await agent.session.room_io.room.local_participant.publish_data(
         json.dumps({"user": entry["user"], "assistant": entry["assistant"]}),
         topic="qa_entry",
     )
 
-    # Keep the last 5 turns for Claude routing context
-    if len(agent.history) > 5:
-        agent.history = agent.history[-5:]
-
-    # Handle slide navigation
-    should_change = result.get("shouldChangeSlide", False)
-    new_index = result.get("slideIndex", agent.current_slide)
-
-    if should_change and 0 <= new_index <= 5:
-        logger.info("Changing slide: %d → %d", agent.current_slide, new_index)
-        await agent.send_slide(new_index)
-
-    # Speak the response
-    response = result.get("response", "")
-    if response:
-        speech = await session.say(response)
-        await speech.wait_for_playout()
+    # Keep last 10 turns for context
+    if len(agent.history) > 10:
+        agent.history = agent.history[-10:]
 
     agent._is_processing = False
 
@@ -238,19 +400,19 @@ def on_user_transcript(ev, agent: PresentationAgent, session: AgentSession) -> N
         return
 
     logger.info("STT fragment: '%s'", text)
-
-    # Accumulate this part
     agent._pending_parts.append(text)
 
-    # Cancel previous debounce timer (user is still talking)
     if agent._debounce_task and not agent._debounce_task.done():
         agent._debounce_task.cancel()
 
-    # Start a new timer — only fires if user stays silent for DEBOUNCE_DELAY
     agent._debounce_task = asyncio.ensure_future(
         debounce_and_process(agent, session)
     )
 
+
+# ---------------------------------------------------------------------------
+# LiveKit session setup
+# ---------------------------------------------------------------------------
 
 server = AgentServer()
 

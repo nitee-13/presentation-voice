@@ -1,136 +1,53 @@
-SLIDES = [
+import json
+from pathlib import Path
+
+_DATA_PATH = Path(__file__).parent.parent / "data" / "slides_data.json"
+
+# ---------------------------------------------------------------------------
+# Minimal fallback so the app can start before preprocessing creates the JSON
+# ---------------------------------------------------------------------------
+_DEFAULT_SLIDES = [
     {
         "index": 0,
-        "title": "The Future of AI (Introduction)",
-        "content": (
-            "Generative AI revolution. LLMs accessible to everyone. "
-            "$1T+ market by 2030. AI transforming every industry."
-        ),
-        "narration": (
-            "Welcome to The Future of AI! I'll be your presenter today. "
-            "We are living through the generative AI revolution. "
-            "Large language models are now accessible to everyone, from students to CEOs. "
-            "The AI market is projected to exceed one trillion dollars by 2030. "
-            "Every single industry is being transformed, from healthcare to finance to entertainment. "
-            "Let's dive into how this technology actually works."
-        ),
-        "keywords": [
-            "generative AI", "introduction", "overview", "what is AI",
-            "revolution", "market",
-        ],
-    },
-    {
-        "index": 1,
-        "title": "Large Language Models",
-        "content": (
-            "Trained on trillions of tokens. Transformer architecture. "
-            "Emergent reasoning. Code generation. "
-            "GPT-4, Claude, and Gemini leading the field."
-        ),
-        "narration": (
-            "So how do these AI systems actually work? "
-            "Large language models are trained on trillions of tokens of text from across the internet. "
-            "They use something called the transformer architecture, which allows them to understand context and relationships in language. "
-            "What's fascinating is that these models develop emergent reasoning abilities, "
-            "meaning they can solve problems they were never explicitly trained on. "
-            "Today, GPT-4, Claude, and Gemini are leading the field, each pushing the boundaries of what's possible."
-        ),
-        "keywords": [
-            "LLM", "language model", "transformer", "GPT", "Claude",
-            "Gemini", "training", "tokens", "how it works",
-        ],
-    },
-    {
-        "index": 2,
-        "title": "Real-World Applications",
-        "content": (
-            "Healthcare diagnosis and drug discovery. "
-            "Personalized education at scale. "
-            "Creative tools for writing, art, and music. "
-            "Enterprise automation."
-        ),
-        "narration": (
-            "Now let's look at where AI is making a real impact today. "
-            "In healthcare, AI is helping doctors diagnose diseases earlier and accelerating drug discovery. "
-            "In education, we're seeing personalized learning at scale for the first time ever. "
-            "Creative professionals are using AI tools for writing, generating art, and even composing music. "
-            "And across the enterprise, AI is automating repetitive tasks and powering smarter decision-making. "
-            "These aren't future possibilities. They're happening right now."
-        ),
-        "keywords": [
-            "applications", "healthcare", "medicine", "education",
-            "creative", "industry", "use cases", "real world",
-        ],
-    },
-    {
-        "index": 3,
-        "title": "Ethical Considerations",
-        "content": (
-            "Bias in training data and outputs. "
-            "Misinformation and deepfakes. "
-            "Alignment problem — keeping AI goals human-aligned. "
-            "Regulation."
-        ),
-        "narration": (
-            "Of course, with great power comes great responsibility. "
-            "AI models can inherit biases from their training data, leading to unfair or discriminatory outputs. "
-            "Misinformation and deepfakes are a growing concern as AI-generated content becomes harder to detect. "
-            "There's also the alignment problem — how do we ensure AI systems stay aligned with human values and goals? "
-            "Governments around the world are now working on regulation frameworks. "
-            "Getting the ethics right is just as important as getting the technology right."
-        ),
-        "keywords": [
-            "ethics", "bias", "misinformation", "deepfake", "alignment",
-            "safety", "risks", "dangers", "regulation",
-        ],
-    },
-    {
-        "index": 4,
-        "title": "The Road Ahead",
-        "content": (
-            "AGI debate and active pursuit. "
-            "Multimodal AI — vision, audio, robotics. "
-            "Autonomous AI agents. "
-            "What the next decade looks like."
-        ),
-        "narration": (
-            "So what's coming next? "
-            "The biggest question in AI right now is whether we'll achieve artificial general intelligence, or AGI. "
-            "We're also seeing the rise of multimodal AI — systems that can see, hear, and interact with the physical world through robotics. "
-            "Autonomous AI agents that can plan, reason, and take actions on your behalf are already emerging. "
-            "The next decade will fundamentally reshape how we work, create, and live. "
-            "It's an exciting and uncertain time."
-        ),
-        "keywords": [
-            "future", "AGI", "multimodal", "agents", "autonomous",
-            "robots", "next decade", "road ahead",
-        ],
-    },
-    {
-        "index": 5,
-        "title": "Key Takeaways",
-        "content": (
-            "AI is a tool — human judgment still essential. "
-            "Upskilling in AI literacy is non-negotiable. "
-            "Human + AI collaboration wins."
-        ),
-        "narration": (
-            "Let me wrap up with the key takeaways. "
-            "First, AI is a tool, not a replacement. Human judgment, creativity, and empathy remain essential. "
-            "Second, upskilling in AI literacy is no longer optional — it's a must for everyone. "
-            "And finally, the future belongs to human plus AI collaboration. "
-            "The teams and individuals who learn to work with AI will have an enormous advantage. "
-            "Thank you for listening! Feel free to ask me any questions about what we've covered."
-        ),
-        "keywords": [
-            "summary", "conclusion", "takeaways", "key points",
-            "collaboration", "human", "upskill",
-        ],
+        "title": "Introduction to AI",
+        "content": "Welcome to the presentation on Introduction to AI.",
+        "narration": "Welcome! This presentation covers an introduction to AI.",
+        "keywords": ["AI", "introduction"],
+        "image": None,
     },
 ]
 
 
+def _load_slides() -> list[dict]:
+    """Load slides from the preprocessed JSON, falling back to defaults."""
+    if not _DATA_PATH.exists():
+        return _DEFAULT_SLIDES
+
+    with open(_DATA_PATH, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+
+    slides = []
+    for entry in raw:
+        slides.append(
+            {
+                "index": entry["index"],
+                "title": entry.get("title", f"Slide {entry['index'] + 1}"),
+                "content": entry.get("extracted_text", ""),
+                "narration": entry.get("narration", ""),
+                "keywords": entry.get("keywords", []),
+                "image": entry.get("image"),
+            }
+        )
+    return slides
+
+
+SLIDES = _load_slides()
+
+
 def _build_system_prompt() -> str:
+    slide_count = len(SLIDES)
+    max_index = slide_count - 1
+
     slide_descriptions = ""
     for s in SLIDES:
         human_num = s['index'] + 1
@@ -140,47 +57,64 @@ def _build_system_prompt() -> str:
             f"    Keywords: {', '.join(s['keywords'])}\n\n"
         )
 
-    return f"""You are an AI presenter delivering a talk called "The Future of AI".
-You control a 6-slide presentation deck. Here are all the slides:
+    return f"""You are an AI presenter delivering a live talk called "Introduction to AI".
+Your spoken response goes directly to text-to-speech. Do NOT return JSON. Speak naturally as a presenter.
+
+You have a {slide_count}-slide presentation deck. Here are all the slides:
 
 {slide_descriptions}
-You will receive:
-- The current slide index (0-5, where 0 = slide 1, 5 = slide 6)
-- The user's spoken transcript
-- Recent conversation history for context
 
-IMPORTANT: Slides are numbered 1-6 for the user, but use index 0-5 in your JSON response.
+SLIDE NUMBERING:
+When the user says "slide 1" they mean index 0, "slide 2" means index 1, and so on.
 - "first slide" or "slide 1" = index 0
 - "second slide" or "slide 2" = index 1
-- "last slide" or "slide 6" = index 5
+- "last slide" or "slide {slide_count}" = index {max_index}
+When you refer to slides in your spoken response, use human numbering (1-{slide_count}), not indices.
 
-Your job:
-1. Determine which slide best matches the user's question or command.
-2. Provide a short, spoken-language response (2-3 sentences max, voice-friendly).
-3. Handle navigation commands like "next slide", "go back", "previous", "go to slide 3", etc.
-4. Use conversation history to understand contextual references. Each history entry includes which slide the user was viewing. Use this to resolve:
-   - "tell me more about that" → the topic from the most recent exchange and its slide
-   - "the previous point" → the content/bullet before the current one on the current slide
-   - "what you said about slide 2" → content from slide index 1
-   - "go back to that part about ethics" → navigate to the matching slide
+TOOLS AVAILABLE:
+You have the following tools you can call as side effects while speaking:
+- navigate_to_slide: Navigate the presentation to a specific slide by index (0-{max_index}).
+- pause_presentation: Pause the auto-narration. The user wants to stop, read, think, or take a break.
+- resume_presentation: Resume narration from where it left off after a pause or Q&A.
+- show_key_facts: Display a popup with key facts or statistics on the current topic.
+- show_comparison_table: Display a popup comparing two or more concepts side by side.
+- show_timeline: Display a popup with a timeline of events or milestones.
+- show_concept_cloud: Display a popup with related concepts and their connections.
+- show_citations: Display a popup with sources and references for the current topic.
 
-Return ONLY valid JSON in this exact format — no markdown, no extra text:
-{{"slideIndex": <number 0-5>, "response": "<your spoken response>", "shouldChangeSlide": <true or false>}}
+NAVIGATION RULES:
+- ALWAYS call navigate_to_slide when the user asks to change slides ("next slide", "go back", "previous", "go to slide 3", etc.).
+- ALWAYS call navigate_to_slide when a user's question clearly maps to a different slide's content — navigate there while answering.
+- For "next", call navigate_to_slide with current index + 1 (cap at {max_index}).
+- For "back" or "previous", call navigate_to_slide with current index - 1 (minimum 0).
 
-Guidelines:
-- Keep responses concise and natural, as they will be read aloud.
-- ALWAYS start your response with a brief, context-appropriate conversational opener. Examples:
-  - Question about a topic: "Great question!" / "Absolutely!" / "So..."
-  - Navigation command: "Sure thing!" / "On it!" / "Of course!"
+PAUSE/RESUME RULES:
+- Call pause_presentation when the user wants to stop, pause, take a break, read, or think. Examples: "hold on", "wait", "pause", "let me read this", "stop", "give me a moment".
+- Call resume_presentation when the user wants to continue after pausing. Examples: "continue", "go on", "keep going", "resume", "carry on", "I'm ready".
+- When paused, answering a question does NOT auto-resume. Only resume_presentation resumes narration.
+
+VISUAL POPUP RULES:
+- Use show_key_facts when presenting important statistics, definitions, or bullet points that benefit from visual reinforcement.
+- Use show_comparison_table when the user asks about differences between concepts or when comparing approaches.
+- Use show_timeline when discussing the history or evolution of AI concepts.
+- Use show_concept_cloud when explaining how ideas relate to each other.
+- Use show_citations when referencing research, studies, or authoritative sources.
+- You may call multiple tools at once (e.g., navigate to a slide AND show a popup).
+
+RESPONSE STYLE:
+- Keep spoken responses to 2-3 sentences. This is voice — be concise and conversational.
+- ALWAYS start with a varied, context-appropriate conversational opener. Examples:
+  - Question about a topic: "Great question!" / "Absolutely!" / "So..." / "That's a really interesting point!"
+  - Navigation command: "Sure thing!" / "On it!" / "Of course!" / "Let's jump to that!"
   - Pause/stop request: "Of course, take your time." / "No problem!"
   - Compliment or agreement: "Thanks!" / "Glad you think so!"
   - Vary your openers — never repeat the same one twice in a row.
-- If the user says "next", increment the slide index by 1 (cap at 5).
-- If the user says "back" or "previous", decrement by 1 (minimum 0).
-- If the question matches a different slide's content, navigate there and set shouldChangeSlide to true.
-- If the question is about the current slide, keep the same index and set shouldChangeSlide to false.
-- When referring to slides by number in your response, use human numbering (1-6), not index (0-5).
-- GUARDRAIL: If the user asks something completely unrelated to AI, the presentation, or the slides (e.g. weather, sports, personal questions), politely redirect them back. Example: "That's a fun question, but let's stay focused on the presentation! Is there anything about AI you'd like to explore?" Do NOT answer off-topic questions. Keep shouldChangeSlide false and stay on the current slide.
+- Do NOT mention tool names in your spoken response. Never say "I'm calling navigate_to_slide" or "Let me use show_key_facts." Just speak naturally while the tools handle the visual and navigation actions in the background.
+  - GOOD: "Let me show you that slide on neural networks. They're modeled after the human brain..."
+  - BAD: "I'll call navigate_to_slide to go to the neural networks slide."
+
+GUARDRAIL:
+If the user asks something completely unrelated to AI, the presentation, or the slides (e.g. weather, sports, personal questions), politely redirect them back. Example: "That's a fun question, but let's stay focused on the presentation! Is there anything about AI you'd like to explore?" Do NOT answer off-topic questions.
 """
 
 
