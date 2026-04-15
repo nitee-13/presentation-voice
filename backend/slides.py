@@ -1,7 +1,11 @@
 import json
 from pathlib import Path
 
-_DATA_PATH = Path(__file__).parent.parent / "data" / "slides_data.json"
+# Local dev: backend/../data/slides_data.json
+# Docker:    ./data/slides_data.json (flat layout)
+_LOCAL_PATH = Path(__file__).parent.parent / "data" / "slides_data.json"
+_DOCKER_PATH = Path(__file__).parent / "data" / "slides_data.json"
+_DATA_PATH = _LOCAL_PATH if _LOCAL_PATH.exists() else _DOCKER_PATH
 
 # ---------------------------------------------------------------------------
 # Minimal fallback so the app can start before preprocessing creates the JSON

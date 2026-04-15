@@ -5,6 +5,7 @@ import {
 } from "@livekit/components-react";
 import "@livekit/components-styles";
 import PresentationRoom from "./PresentationRoom";
+import ErrorBoundary from "./ErrorBoundary";
 
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL;
 const TOKEN_SERVER_URL = import.meta.env.VITE_TOKEN_SERVER_URL;
@@ -125,7 +126,9 @@ export default function App() {
       style={{ height: "100vh", width: "100vw" }}
     >
       <RoomAudioRenderer />
-      <PresentationRoom />
+      <ErrorBoundary>
+        <PresentationRoom />
+      </ErrorBoundary>
     </LiveKitRoom>
   );
 }

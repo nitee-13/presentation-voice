@@ -21,3 +21,8 @@ frontend/dist/
 *.swp
 *.swo
 .DS_Store
+.vercel
+.env*.local
+
+# Credentials
+backend/credentials/
