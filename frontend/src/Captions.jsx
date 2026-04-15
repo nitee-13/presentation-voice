@@ -7,16 +7,15 @@ const styles = {
     left: "50%",
     transform: "translateX(-50%)",
     width: "min(90vw, 800px)",
-    maxHeight: "120px",
-    overflowY: "auto",
-    padding: "0.75rem 1.25rem",
+    padding: "0.5rem 1.25rem",
     borderRadius: "12px",
-    background: "rgba(0, 0, 0, 0.7)",
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
-    border: "1px solid rgba(255, 255, 255, 0.08)",
+    background: "transparent",
     zIndex: 90,
     transition: "opacity 0.3s ease, transform 0.3s ease",
+    overflow: "hidden",
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
   },
   visible: {
     opacity: 1,
@@ -30,8 +29,12 @@ const styles = {
   line: {
     fontSize: "0.95rem",
     lineHeight: 1.5,
-    color: "rgba(255, 255, 255, 0.9)",
+    color: "rgba(0, 0, 0, 0.85)",
     margin: 0,
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+    overflow: "hidden",
   },
   label: {
     fontSize: "0.7rem",
@@ -130,7 +133,7 @@ export default function Captions({ agentTranscriptions, show, onToggle }) {
           }}
         >
           <p style={styles.line}>
-            <span style={{ ...styles.label, color: "#60a5fa" }}>Devi</span>
+            <span style={{ ...styles.label, color: "#2563eb" }}>Devi</span>
             {captionText}
           </p>
         </div>

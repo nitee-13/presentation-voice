@@ -11,11 +11,13 @@ import VoiceControls from "./VoiceControls";
 import Captions from "./Captions";
 import QAPanel from "./QAPanel";
 import Popup from "./Popup";
+import FeedbackOverlay from "./FeedbackOverlay";
 
 export default function PresentationRoom() {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [showCaptions, setShowCaptions] = useState(false);
   const [popupData, setPopupData] = useState(null);
+  const [feedbackActive, setFeedbackActive] = useState(false);
   const { state: agentState, agentTranscriptions } = useVoiceAssistant();
   const room = useRoomContext();
   const { localParticipant } = useLocalParticipant();
@@ -119,8 +121,21 @@ export default function PresentationRoom() {
         onToggle={() => setShowCaptions((prev) => !prev)}
       />
       <VoiceControls state={agentState} />
+      {feedbackActive && (
+        <FeedbackOverlay onDone={() => room.disconnect()} />
+      )}
       <button
-        onClick={() => room.disconnect()}
+        onClick={() => {
+          if (feedbackActive) {
+            room.disconnect();
+          } else {
+            setFeedbackActive(true);
+            localParticipant?.publishData(
+              JSON.stringify({ action: "start_feedback" }),
+              { topic: "feedback_control" }
+            );
+          }
+        }}
         style={{
           position: "fixed",
           top: "1.5rem",
@@ -135,14 +150,14 @@ export default function PresentationRoom() {
           fontSize: "0.8rem",
           fontWeight: 500,
           cursor: "pointer",
-          zIndex: 200,
+          zIndex: 400,
           transition: "all 0.2s",
           letterSpacing: "0.5px",
         }}
         onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255, 50, 50, 0.35)")}
         onMouseOut={(e) => (e.currentTarget.style.background = "rgba(255, 50, 50, 0.15)")}
       >
-        End Session
+        {feedbackActive ? "Skip & Exit" : "End Session"}
       </button>
     </>
   );

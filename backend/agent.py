@@ -53,6 +53,26 @@ def split_into_chunks(text: str, sentences_per_chunk: int = 3) -> list[str]:
     return chunks
 
 
+RATING_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+
+
+def parse_rating(text: str) -> int | None:
+    """Extract a 1-5 rating from spoken text."""
+    match = re.search(r'\b([1-5])\b', text)
+    if match:
+        return int(match.group(1))
+    lower = text.lower()
+    for word, num in RATING_WORDS.items():
+        if word in lower:
+            return num
+    return None
+
+
+def rating_label(n: int) -> str:
+    """Human-friendly rating label."""
+    return f"{n} star{'s' if n != 1 else ''}"
+
+
 LANGUAGE_TRIGGERS = {
     "spanish": "Spanish", "español": "Spanish",
     "french": "French", "français": "French",
@@ -109,6 +129,11 @@ class PresentationAgent(Agent):
         self.paused = False
         self.language: str | None = None
 
+        # --- Feedback ---
+        self.feedback_mode: str | None = None  # None | "rating" | "comment" | "confirm"
+        self.feedback_rating: int = 0
+        self.feedback_comment: str = ""
+
         # --- Debounce ---
         self._pending_parts: list[str] = []
         self._debounce_task: asyncio.Task | None = None
@@ -134,6 +159,13 @@ class PresentationAgent(Agent):
         await self.session.room_io.room.local_participant.publish_data(
             json.dumps(payload),
             topic="ui_popup",
+        )
+
+    async def publish_feedback(self, payload: dict) -> None:
+        """Send a feedback update to the frontend."""
+        await self.session.room_io.room.local_participant.publish_data(
+            json.dumps(payload),
+            topic="feedback_update",
         )
 
     # ------------------------------------------------------------------
@@ -405,6 +437,84 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
         agent._is_processing = False
         return
 
+    # --- Feedback phase ---
+    if agent.feedback_mode:
+        logger.info("Feedback phase (%s): '%s'", agent.feedback_mode, full_transcript)
+
+        if agent.feedback_mode == "rating":
+            rating = parse_rating(full_transcript)
+            if rating:
+                agent.feedback_rating = rating
+                await agent.publish_feedback({"rating": rating, "phase": "comment"})
+                agent.feedback_mode = "comment"
+                speech = await session.say(
+                    f"{'Wonderful' if rating >= 4 else 'Noted'}, {rating} stars! "
+                    "Any thoughts or feedback you'd like to add? Or just say 'no' to wrap up.",
+                    allow_interruptions=True,
+                )
+                await speech.wait_for_playout()
+            else:
+                await session.say(
+                    "Could you give me a rating from 1 to 5 stars?",
+                    allow_interruptions=True,
+                )
+
+        elif agent.feedback_mode == "comment":
+            lower = full_transcript.lower().strip()
+            no_comment = any(kw in lower for kw in [
+                "no", "nope", "nothing", "that's it", "that's all",
+                "i'm good", "all good", "skip", "none",
+            ])
+
+            if no_comment:
+                await agent.publish_feedback({"phase": "done"})
+                agent.feedback_mode = None
+                speech = await session.say(
+                    "No worries! Thanks for the rating. It was great presenting to you. Take care!",
+                    allow_interruptions=True,
+                )
+                await speech.wait_for_playout()
+            else:
+                agent.feedback_comment = full_transcript
+                await agent.publish_feedback({"comment": full_transcript, "phase": "confirm"})
+                agent.feedback_mode = "confirm"
+                speech = await session.say(
+                    f"Got it! Just to confirm — {rating_label(agent.feedback_rating)} "
+                    f"and your feedback is: \"{full_transcript}\". Shall I submit that?",
+                    allow_interruptions=True,
+                )
+                await speech.wait_for_playout()
+
+        elif agent.feedback_mode == "confirm":
+            lower = full_transcript.lower().strip()
+            confirmed = any(kw in lower for kw in [
+                "yes", "yep", "yeah", "sure", "confirm", "submit",
+                "go ahead", "that's right", "correct", "do it",
+            ])
+
+            if confirmed:
+                logger.info("Feedback submitted: rating=%d, comment='%s'",
+                            agent.feedback_rating, agent.feedback_comment)
+                await agent.publish_feedback({"phase": "done"})
+                agent.feedback_mode = None
+                speech = await session.say(
+                    "Submitted! Thank you so much. It was a pleasure presenting to you. Goodbye!",
+                    allow_interruptions=True,
+                )
+                await speech.wait_for_playout()
+            else:
+                await agent.publish_feedback({"phase": "comment"})
+                agent.feedback_mode = "comment"
+                agent.feedback_comment = ""
+                speech = await session.say(
+                    "No problem! Go ahead and share your feedback again.",
+                    allow_interruptions=True,
+                )
+                await speech.wait_for_playout()
+
+        agent._is_processing = False
+        return
+
     logger.info("Processing: '%s' (visual: slide %d | cursor: slide %d, sentence %d)",
                 full_transcript, agent.current_slide, agent._cursor, agent._sentence_index)
 
@@ -544,6 +654,19 @@ def on_user_transcript(ev, agent: PresentationAgent, session: AgentSession) -> N
 # LiveKit session setup
 # ---------------------------------------------------------------------------
 
+async def _start_feedback(agent: PresentationAgent, session: AgentSession) -> None:
+    """Initiate the voice feedback flow."""
+    await agent.publish_feedback({"phase": "rating"})
+    speech = await session.say(
+        "Oh, before you escape! I promise this isn't one of those never-ending surveys. "
+        "Just a quick rating, 1 to 5 stars — and if you'd rather not, "
+        "just hit that button again and I won't hold it against you. "
+        "So, how many stars am I getting?",
+        allow_interruptions=True,
+    )
+    await speech.wait_for_playout()
+
+
 server = AgentServer()
 
 
@@ -575,8 +698,18 @@ async def handle_session(ctx: JobContext) -> None:
                     logger.info("User keyboard nav: visual %d → %d  [cursor stays at %d]",
                                 agent.current_slide, slide_index, agent._cursor)
                     agent.current_slide = slide_index
+
+            elif data_packet.topic == "feedback_control":
+                payload = json.loads(data_packet.data.decode())
+                if payload.get("action") == "start_feedback":
+                    logger.info("Feedback mode started")
+                    agent.is_presenting = False
+                    agent.paused = False
+                    agent._resume_event.set()
+                    agent.feedback_mode = "rating"
+                    asyncio.ensure_future(_start_feedback(agent, session))
         except Exception as e:
-            logger.error("Failed to parse user_slide_nav: %s", e)
+            logger.error("Failed to parse data_received: %s", e)
 
     await session.start(
         agent=agent,
