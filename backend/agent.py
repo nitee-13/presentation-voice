@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import re
 
 from dotenv import load_dotenv
@@ -10,7 +11,7 @@ from livekit.agents.voice import Agent
 from livekit.plugins import deepgram, google
 
 from claude_router import (
-    route_slide, summarize_conversation, generate_filler, warm_filler_cache,
+    route_slide, summarize_conversation,
     POPUP_TOOLS, DEVI_INTRO, check_start_intent, generate_pre_start_response,
     warm_start_cache,
 )
@@ -23,7 +24,18 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelna
 
 
 # How long to wait after the user's last utterance before processing (seconds)
-DEBOUNCE_DELAY = 1.0
+DEBOUNCE_DELAY = 2.0
+FILLER_DELAY = 5.0
+
+GENERIC_FILLERS = [
+    "Hmm, let me think about that...",
+    "One moment, let me look into that.",
+    "Good question, give me a second...",
+    "Let me consider that for a moment...",
+    "Hmm, that's interesting, one sec...",
+    "Bear with me for just a moment...",
+    "Let me dig into that for you...",
+]
 
 # Filler words / backchannel sounds that should NOT trigger a response
 FILLER_WORDS = {
@@ -38,6 +50,19 @@ def is_filler_only(text: str) -> bool:
     """Check if the text is just filler words / backchannel sounds."""
     words = text.lower().replace(".", "").replace(",", "").replace("?", "").replace("!", "").split()
     return all(w in FILLER_WORDS for w in words)
+
+
+_OPENERS = re.compile(
+    r"^(great question!?|that'?s a (?:great|really interesting|fantastic) (?:question|topic|point)!?"
+    r"|absolutely!?|sure thing!?|of course!?|let me show you[^.!]*[.!]?"
+    r"|let me pull[^.!]*[.!]?|i'?d be happy to[^.!]*[.!]?)\s*",
+    re.IGNORECASE,
+)
+
+
+def _strip_opener(text: str) -> str:
+    """Remove conversational opener from response when filler already spoke one."""
+    return _OPENERS.sub("", text, count=1).strip()
 
 
 def split_into_chunks(text: str, sentences_per_chunk: int = 3) -> list[str]:
@@ -323,6 +348,8 @@ class PresentationAgent(Agent):
                 while self._pending_parts or self._is_processing:
                     await asyncio.sleep(0.2)
                 # After user input resolved, check state
+                if not self.is_presenting:
+                    return False
                 if self._cursor != index:
                     return False
                 if self.paused:
@@ -356,7 +383,7 @@ class PresentationAgent(Agent):
         """
         self.is_presenting = True
 
-        while self._cursor < len(SLIDES):
+        while self._cursor < len(SLIDES) and self.is_presenting:
             # Skip already-completed slides
             if self._cursor in self.slides_completed:
                 logger.info("Skipping slide %d (already completed)", self._cursor)
@@ -381,7 +408,19 @@ class PresentationAgent(Agent):
             # loop re-reads self._cursor at the top
 
         self.is_presenting = False
-        logger.info("Presentation complete — all slides narrated")
+
+        # Only speak outro if narration finished naturally (not ended by tool call)
+        if self._cursor >= len(SLIDES):
+            logger.info("Presentation complete — speaking outro")
+            speech = await self.session.say(
+                "And that wraps up our presentation on Introduction to AI! "
+                "I hope you found it informative. If you have any questions, "
+                "feel free to ask — I'm still here!",
+                allow_interruptions=True,
+            )
+            await speech.wait_for_playout()
+        else:
+            logger.info("Presentation stopped early")
 
     async def on_enter(self) -> None:
         """Speak intro and wait for user to signal start."""
@@ -548,7 +587,26 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
         agent._is_processing = False
         return
 
-    # Route via direct Claude API with tools
+    # --- Route via Claude with timeout-based filler ---
+    # If Sonnet takes longer than FILLER_DELAY, play a generic filler
+    # so the user doesn't sit in silence.
+
+    filler_spoken = False
+    filler_done = asyncio.Event()
+
+    async def _delayed_filler():
+        nonlocal filler_spoken
+        await asyncio.sleep(FILLER_DELAY)
+        filler_spoken = True
+        filler_done.clear()
+        filler = random.choice(GENERIC_FILLERS)
+        logger.info("Playing filler (Sonnet took >%ss): '%s'", FILLER_DELAY, filler)
+        speech = await session.say(filler, allow_interruptions=False)
+        await speech.wait_for_playout()
+        filler_done.set()
+
+    filler_task = asyncio.create_task(_delayed_filler())
+
     try:
         result = await route_slide(
             transcript=full_transcript,
@@ -559,38 +617,42 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
             language=agent.language,
         )
     except Exception as e:
+        filler_task.cancel()
         logger.error("Claude routing failed: %s", e, exc_info=True)
         await session.say("Sorry, I had trouble processing that. Could you repeat your question?")
         agent._is_processing = False
         return
 
+    # If filler hasn't started speaking, cancel it
+    if not filler_spoken:
+        filler_task.cancel()
+    else:
+        # Filler is playing — wait for it to finish + brief gap
+        await filler_done.wait()
+        await asyncio.sleep(1.0)
+
     tool_calls = result.get("tool_calls", [])
     response = result.get("response", "")
 
+    # Strip opener if filler already spoke one
+    if filler_spoken:
+        response = _strip_opener(response)
+
     # Categorize tool calls by timing
     popup_calls = [tc for tc in tool_calls if tc["name"] in POPUP_TOOLS]
-    pause_calls = [tc for tc in tool_calls if tc["name"] == "pause_presentation"]
+    immediate_calls = [tc for tc in tool_calls if tc["name"] in (
+        "pause_presentation", "end_presentation",
+    )]
     after_speech_calls = [tc for tc in tool_calls if tc["name"] in (
         "advance_to_slide", "peek_at_slide", "resume_presentation",
-        "end_presentation",
     )]
 
-    # Execute pause immediately (before anything else)
-    if pause_calls:
-        await agent.execute_tool_calls(pause_calls)
+    # Execute pause + end immediately (before speech)
+    if immediate_calls:
+        await agent.execute_tool_calls(immediate_calls)
 
-    # If popup tools present → filler → popup → main response
+    # Show popups before speaking response
     if popup_calls:
-        popup_type = popup_calls[0]["name"].removeprefix("show_")
-        try:
-            filler = await generate_filler(full_transcript, popup_type)
-            if filler:
-                filler_speech = await session.say(filler, allow_interruptions=True)
-                await filler_speech.wait_for_playout()
-        except Exception as e:
-            logger.warning("Filler generation failed: %s", e)
-
-        # Show popups (appears while user heard the filler)
         await agent.execute_tool_calls(popup_calls)
 
     # Speak the main response
@@ -675,8 +737,8 @@ server = AgentServer()
 async def handle_session(ctx: JobContext) -> None:
     await ctx.connect()
 
-    # Prime Haiku caches so first calls are fast
-    await asyncio.gather(warm_filler_cache(), warm_start_cache())
+    # Prime Haiku cache so first start-intent check is fast
+    await warm_start_cache()
 
     # Load Google credentials from env var (JSON string) or fall back to file
     google_creds = None

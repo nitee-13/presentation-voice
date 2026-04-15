@@ -70,14 +70,14 @@ export default function Captions({ agentTranscriptions, show, onToggle }) {
   const [captionText, setCaptionText] = useState("");
   const scrollRef = useRef(null);
 
-  // Build caption text from the latest agent transcription segments
+  // Show only the most recent transcription segments (rolling window)
   useEffect(() => {
     if (!agentTranscriptions || agentTranscriptions.length === 0) {
       return;
     }
 
-    // Get the most recent segments and combine their text
-    const recent = agentTranscriptions.slice(-15);
+    // Take only the last 3 segments so text stays current with speech
+    const recent = agentTranscriptions.slice(-3);
     const text = recent
       .map((seg) => seg.text)
       .join("")
