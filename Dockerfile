@@ -17,4 +17,4 @@ EXPOSE 8000
 ENTRYPOINT ["./entrypoint.sh"]
 
 # Default: token server. Agent worker overrides via Railway Custom Start Command.
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000}"]
