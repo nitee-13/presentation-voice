@@ -4,6 +4,8 @@ livekit-agents[inference]
 livekit-api
 anthropic
 livekit-plugins-anthropic
+livekit-plugins-deepgram
+livekit-plugins-google
 python-dotenv
 pydantic
 pdf2image
