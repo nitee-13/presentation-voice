@@ -16,18 +16,38 @@ _MAX_SLIDE_INDEX = len(SLIDES) - 1
 
 TOOLS = [
     {
-        "name": "navigate_to_slide",
+        "name": "advance_to_slide",
         "description": (
-            "Navigate to a specific slide in the presentation. Call this when the user "
-            "asks to change slides, go to a particular slide, or asks about a topic "
-            "covered on a different slide."
+            "Advance the presentation to a specific slide permanently. Use this for "
+            "forward progression: 'next slide', 'skip to slide 5', 'move on'. "
+            "The presentation will continue auto-narrating from this slide onward."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "slide_index": {
                     "type": "integer",
-                    "description": "0-based slide index to navigate to.",
+                    "description": "0-based slide index to advance to.",
+                },
+            },
+            "required": ["slide_index"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "peek_at_slide",
+        "description": (
+            "Temporarily show a different slide to explain or reference it, without "
+            "changing the presentation position. Use this for detours: 'go back to slide 3 "
+            "and explain', 'show me the ethics slide again', 'what was on slide 2'. "
+            "After the explanation, the presentation resumes from where it was."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "slide_index": {
+                    "type": "integer",
+                    "description": "0-based slide index to temporarily display.",
                 },
             },
             "required": ["slide_index"],

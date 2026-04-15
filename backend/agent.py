@@ -67,24 +67,40 @@ def detect_language_switch(text: str) -> str | None:
 
 
 class PresentationAgent(Agent):
+    """Two-pointer architecture:
+
+    Pointer 1 — Presentation cursor (_cursor / _sentence_index)
+        Where auto-narration is in the natural slide order.
+        Only advances when a slide is fully narrated.
+
+    Pointer 2 — Visual pointer (current_slide)
+        Which slide is displayed on the user's screen.
+        Jumps freely for Q&A navigation.
+    """
+
     def __init__(self) -> None:
         super().__init__(instructions="You are an AI presentation assistant.")
+
+        # --- Pointer 2: visual (what's on screen) ---
         self.current_slide = 0
+
+        # --- Pointer 1: presentation cursor (auto-narration position) ---
+        self._cursor = 0                      # slide index in natural order
+        self._sentence_index = 0              # sentence within that slide
+        self.slides_completed: set[int] = set()  # fully narrated slides
+
+        # --- State ---
         self.history: list[dict] = []
         self.is_presenting = False
-        self.paused = False           # True when user asked to pause
+        self.paused = False
         self.language: str | None = None
 
-        # Sentence-level narration tracking
-        self._sentence_index = 0      # next sentence to speak on current slide
-        self._navigated = False       # True when navigate_to_slide was called
-
-        # Debounce state
+        # --- Debounce ---
         self._pending_parts: list[str] = []
         self._debounce_task: asyncio.Task | None = None
         self._is_processing = False
 
-        # Event to wake up the presentation loop when resumed
+        # --- Events ---
         self._resume_event = asyncio.Event()
 
     # ------------------------------------------------------------------
@@ -92,7 +108,7 @@ class PresentationAgent(Agent):
     # ------------------------------------------------------------------
 
     async def send_slide(self, index: int) -> None:
-        """Send slide change event to the frontend."""
+        """Move the visual pointer — update frontend display."""
         self.current_slide = index
         await self.session.room_io.room.local_participant.publish_data(
             json.dumps({"slideIndex": index}),
@@ -107,7 +123,7 @@ class PresentationAgent(Agent):
         )
 
     # ------------------------------------------------------------------
-    # Tool execution — runs tool_use blocks returned by Claude
+    # Tool execution
     # ------------------------------------------------------------------
 
     async def execute_tool_calls(self, tool_calls: list[dict]) -> None:
@@ -116,21 +132,32 @@ class PresentationAgent(Agent):
             name = tc["name"]
             inp = tc["input"]
 
-            if name == "navigate_to_slide":
+            if name == "advance_to_slide":
                 slide_index = inp["slide_index"]
                 if 0 <= slide_index < len(SLIDES):
-                    logger.info("navigate_to_slide: %d → %d", self.current_slide, slide_index)
+                    logger.info("advance_to_slide: visual %d → %d, cursor %d → %d",
+                                self.current_slide, slide_index, self._cursor, slide_index)
+                    # Move BOTH pointers — permanent navigation
                     await self.send_slide(slide_index)
-                    self._navigated = True
-                    self._sentence_index = 0  # reset sentence tracking for new slide
-                    self.paused = False        # navigating auto-unpauses
+                    self._cursor = slide_index
+                    self._sentence_index = 0
+
+            elif name == "peek_at_slide":
+                slide_index = inp["slide_index"]
+                if 0 <= slide_index < len(SLIDES):
+                    logger.info("peek_at_slide (visual only): %d → %d  [cursor stays at %d, sentence %d]",
+                                self.current_slide, slide_index, self._cursor, self._sentence_index)
+                    # Only move visual pointer — cursor untouched
+                    await self.send_slide(slide_index)
 
             elif name == "pause_presentation":
-                logger.info("pause_presentation")
+                logger.info("pause_presentation [cursor at slide %d, sentence %d]",
+                            self._cursor, self._sentence_index)
                 self.paused = True
 
             elif name == "resume_presentation":
-                logger.info("resume_presentation (sentence %d)", self._sentence_index)
+                logger.info("resume_presentation [cursor at slide %d, sentence %d]",
+                            self._cursor, self._sentence_index)
                 self.paused = False
                 self._resume_event.set()
 
@@ -187,81 +214,108 @@ class PresentationAgent(Agent):
     # Sentence-level slide narration
     # ------------------------------------------------------------------
 
-    async def narrate_slide(self, index: int) -> None:
+    async def narrate_slide(self, index: int) -> bool:
         """Narrate a slide sentence by sentence, tracking progress.
 
-        If the user interrupts (STT fires), session.say returns early
-        because allow_interruptions=True. We record how far we got
-        so we can resume later.
+        Returns True if the slide was fully narrated, False if cursor moved away.
         """
         if index < 0 or index >= len(SLIDES):
-            return
+            return True
 
         slide = SLIDES[index]
         sentences = split_into_sentences(slide["narration"])
 
-        await self.send_slide(index)
-        logger.info("Narrating slide %d: %s (from sentence %d/%d)",
+        if not sentences:
+            return True
+
+        # Sync visual pointer to the cursor slide
+        if self.current_slide != index:
+            await self.send_slide(index)
+
+        logger.info("Narrating slide %d: %s (sentence %d/%d)",
                      index, slide["title"], self._sentence_index, len(sentences))
 
         while self._sentence_index < len(sentences):
-            # If paused, wait until resume_presentation is called
+            # If cursor moved (advance_to_slide called), stop narrating this slide
+            if self._cursor != index:
+                logger.info("Cursor moved away from slide %d → %d, stopping narration",
+                            index, self._cursor)
+                return False
+
+            # If paused, wait until resume
             if self.paused:
-                logger.info("Paused at sentence %d/%d on slide %d",
-                            self._sentence_index, len(sentences), index)
+                logger.info("Paused at slide %d, sentence %d/%d",
+                            index, self._sentence_index, len(sentences))
                 self._resume_event.clear()
                 await self._resume_event.wait()
-                logger.info("Resumed at sentence %d/%d on slide %d",
-                            self._sentence_index, len(sentences), index)
+                # After resume, check if cursor moved while paused
+                if self._cursor != index:
+                    return False
+                # Sync visual back to cursor
+                if self.current_slide != index:
+                    await self.send_slide(index)
+                logger.info("Resumed at slide %d, sentence %d/%d",
+                            index, self._sentence_index, len(sentences))
 
-            # If navigated to a different slide, stop narrating this one
-            if self._navigated:
-                return
-
-            # If currently processing a Q&A, wait for it to finish
+            # If processing a Q&A, wait for it to finish
             if self._is_processing:
                 while self._is_processing:
                     await asyncio.sleep(0.2)
-                # After Q&A, check if we navigated or paused
-                if self._navigated or self.paused:
-                    return
-                # Otherwise continue from where we left off
+                # After Q&A, check if cursor moved (advance_to_slide)
+                if self._cursor != index:
+                    return False
+                # If paused (by pause_presentation), loop back to pause check
+                if self.paused:
+                    continue
+                # Sync visual back to cursor slide (peek_at_slide may have changed it)
+                if self.current_slide != index:
+                    await self.send_slide(index)
 
             sentence = sentences[self._sentence_index]
             speech = await self.session.say(sentence, allow_interruptions=True)
             await speech.wait_for_playout()
 
-            # Only advance if we weren't interrupted mid-sentence
-            if not self._is_processing and not self._navigated and not self.paused:
+            # Only advance sentence if we weren't interrupted
+            if not self._is_processing and not self.paused and self._cursor == index:
                 self._sentence_index += 1
 
-        # Slide fully narrated — reset for next slide
+        # Slide fully narrated
         self._sentence_index = 0
+        self.slides_completed.add(index)
+        logger.info("Slide %d fully narrated (completed: %s)", index, self.slides_completed)
+        return True
 
     # ------------------------------------------------------------------
-    # Presentation loop
+    # Presentation loop (drives pointer 1 — the cursor)
     # ------------------------------------------------------------------
 
     async def run_presentation(self) -> None:
-        """Auto-narrate through all slides sequentially."""
+        """Auto-narrate slides in order, skipping completed ones.
+
+        The loop reads self._cursor each iteration. advance_to_slide changes
+        _cursor directly, so the loop naturally picks up the new position.
+        """
         self.is_presenting = True
-        slide_index = 0
 
-        while slide_index < len(SLIDES):
-            self._navigated = False
-
-            await self.narrate_slide(slide_index)
-
-            # If navigated during narration, jump to the new slide
-            if self._navigated:
-                self._navigated = False
-                slide_index = self.current_slide
-                logger.info("Jumping to slide %d after navigation", slide_index)
+        while self._cursor < len(SLIDES):
+            # Skip already-completed slides
+            if self._cursor in self.slides_completed:
+                logger.info("Skipping slide %d (already completed)", self._cursor)
+                self._cursor += 1
                 continue
 
-            # Small pause between slides
-            await asyncio.sleep(1.5)
-            slide_index += 1
+            # Remember which slide we're about to narrate
+            target = self._cursor
+
+            completed = await self.narrate_slide(target)
+
+            if completed:
+                await asyncio.sleep(1.5)
+                # Only advance cursor if it wasn't moved by advance_to_slide
+                if self._cursor == target:
+                    self._cursor += 1
+            # If not completed: cursor was moved by advance_to_slide,
+            # loop re-reads self._cursor at the top
 
         self.is_presenting = False
         logger.info("Presentation complete — all slides narrated")
@@ -291,8 +345,8 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
         return
 
     agent._is_processing = True
-    logger.info("Processing: '%s' (slide: %d, sentence: %d)",
-                full_transcript, agent.current_slide, agent._sentence_index)
+    logger.info("Processing: '%s' (visual: slide %d | cursor: slide %d, sentence %d)",
+                full_transcript, agent.current_slide, agent._cursor, agent._sentence_index)
 
     # Language switch
     new_lang = detect_language_switch(full_transcript)
@@ -340,13 +394,10 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
     tool_calls = result.get("tool_calls", [])
     response = result.get("response", "")
 
-    # Split tool calls: popups fire immediately, navigation/pause/resume after speech
-    popup_calls = [tc for tc in tool_calls if tc["name"] not in (
-        "navigate_to_slide", "pause_presentation", "resume_presentation",
-    )]
-    control_calls = [tc for tc in tool_calls if tc["name"] in (
-        "navigate_to_slide", "pause_presentation", "resume_presentation",
-    )]
+    # Split: popups fire immediately, control actions after speech
+    CONTROL_TOOLS = ("advance_to_slide", "peek_at_slide", "pause_presentation", "resume_presentation")
+    popup_calls = [tc for tc in tool_calls if tc["name"] not in CONTROL_TOOLS]
+    control_calls = [tc for tc in tool_calls if tc["name"] in CONTROL_TOOLS]
 
     # Execute popup tool calls immediately
     if popup_calls:
@@ -357,11 +408,11 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
         speech = await session.say(response, allow_interruptions=True)
         await speech.wait_for_playout()
 
-    # Execute control tool calls after speech (navigate, pause, resume)
+    # Execute control tool calls after speech
     if control_calls:
         await agent.execute_tool_calls(control_calls)
 
-    # Store conversation turn with slide context
+    # Store conversation turn
     slide = SLIDES[agent.current_slide]
     entry = {
         "user": full_transcript,
