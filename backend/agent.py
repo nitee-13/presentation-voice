@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import re
 
 from dotenv import load_dotenv
@@ -677,9 +678,18 @@ async def handle_session(ctx: JobContext) -> None:
     # Prime Haiku caches so first calls are fast
     await asyncio.gather(warm_filler_cache(), warm_start_cache())
 
+    # Load Google credentials from env var (JSON string) or fall back to file
+    google_creds = None
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+    if creds_json:
+        google_creds = json.loads(creds_json)
+
     session = AgentSession(
         stt=deepgram.STT(model="nova-3"),
-        tts=google.TTS(voice_name="en-US-Chirp3-HD-Achernar"),
+        tts=google.TTS(
+            voice_name="en-US-Chirp3-HD-Achernar",
+            **({"credentials_info": google_creds} if google_creds else {}),
+        ),
     )
 
     agent = PresentationAgent()
