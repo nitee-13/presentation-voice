@@ -97,7 +97,7 @@ export default function PresentationRoom() {
         slideRef.current = next;
         setCurrentSlide(next);
         localParticipant?.publishData(
-          JSON.stringify({ slideIndex: next }),
+          new TextEncoder().encode(JSON.stringify({ slideIndex: next })),
           { topic: "user_slide_nav" }
         );
       }
@@ -131,7 +131,7 @@ export default function PresentationRoom() {
           } else {
             setFeedbackActive(true);
             localParticipant?.publishData(
-              JSON.stringify({ action: "start_feedback" }),
+              new TextEncoder().encode(JSON.stringify({ action: "start_feedback" })),
               { topic: "feedback_control" }
             );
           }

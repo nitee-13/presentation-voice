@@ -164,6 +164,7 @@ class PresentationAgent(Agent):
         self._pending_parts: list[str] = []
         self._debounce_task: asyncio.Task | None = None
         self._is_processing = False
+        self._filler_task: asyncio.Task | None = None
 
         # --- Events ---
         self._resume_event = asyncio.Event()
@@ -435,6 +436,11 @@ class PresentationAgent(Agent):
 
 async def process_full_transcript(agent: PresentationAgent, session: AgentSession) -> None:
     """Process the accumulated transcript after debounce delay."""
+    # Cancel any orphaned filler task from a prior invocation
+    if agent._filler_task and not agent._filler_task.done():
+        agent._filler_task.cancel()
+        agent._filler_task = None
+
     full_transcript = " ".join(agent._pending_parts).strip()
     agent._pending_parts = []
     agent._is_processing = True
@@ -443,7 +449,7 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
         agent._is_processing = False
         return
 
-    if is_filler_only(full_transcript):
+    if not agent.feedback_mode and is_filler_only(full_transcript):
         logger.info("Ignoring filler-only transcript: '%s'", full_transcript)
         agent._is_processing = False
         return
@@ -507,13 +513,13 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
             ])
 
             if no_comment:
-                await agent.publish_feedback({"phase": "done"})
                 agent.feedback_mode = None
                 speech = await session.say(
                     "No worries! Thanks for the rating. It was great presenting to you. Take care!",
                     allow_interruptions=True,
                 )
                 await speech.wait_for_playout()
+                await agent.publish_feedback({"phase": "done"})
             else:
                 agent.feedback_comment = full_transcript
                 await agent.publish_feedback({"comment": full_transcript, "phase": "confirm"})
@@ -535,13 +541,13 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
             if confirmed:
                 logger.info("Feedback submitted: rating=%d, comment='%s'",
                             agent.feedback_rating, agent.feedback_comment)
-                await agent.publish_feedback({"phase": "done"})
                 agent.feedback_mode = None
                 speech = await session.say(
                     "Submitted! Thank you so much. It was a pleasure presenting to you. Goodbye!",
                     allow_interruptions=True,
                 )
                 await speech.wait_for_playout()
+                await agent.publish_feedback({"phase": "done"})
             else:
                 await agent.publish_feedback({"phase": "comment"})
                 agent.feedback_mode = "comment"
@@ -605,7 +611,12 @@ async def process_full_transcript(agent: PresentationAgent, session: AgentSessio
         await speech.wait_for_playout()
         filler_done.set()
 
+    # Cancel any zombie filler from a previous call
+    if agent._filler_task and not agent._filler_task.done():
+        agent._filler_task.cancel()
+
     filler_task = asyncio.create_task(_delayed_filler())
+    agent._filler_task = filler_task
 
     try:
         result = await route_slide(
@@ -762,26 +773,34 @@ async def handle_session(ctx: JobContext) -> None:
 
     @ctx.room.on("data_received")
     def on_data(data_packet):
-        try:
-            if data_packet.topic == "user_slide_nav":
-                payload = json.loads(data_packet.data.decode())
-                slide_index = payload.get("slideIndex")
-                if isinstance(slide_index, int) and 0 <= slide_index < len(SLIDES):
-                    logger.info("User keyboard nav: visual %d → %d  [cursor stays at %d]",
-                                agent.current_slide, slide_index, agent._cursor)
-                    agent.current_slide = slide_index
+        if data_packet.topic not in ("user_slide_nav", "feedback_control"):
+            return
 
-            elif data_packet.topic == "feedback_control":
-                payload = json.loads(data_packet.data.decode())
-                if payload.get("action") == "start_feedback":
-                    logger.info("Feedback mode started")
-                    agent.is_presenting = False
-                    agent.paused = False
-                    agent._resume_event.set()
-                    agent.feedback_mode = "rating"
-                    asyncio.ensure_future(_start_feedback(agent, session))
-        except Exception as e:
-            logger.error("Failed to parse data_received: %s", e)
+        try:
+            raw = data_packet.data
+            text = raw.decode() if isinstance(raw, (bytes, bytearray, memoryview)) else str(raw)
+            if not text.strip():
+                return
+            payload = json.loads(text)
+        except (ValueError, UnicodeDecodeError, AttributeError) as e:
+            logger.error("Failed to parse data_received on topic %s: %s", data_packet.topic, e)
+            return
+
+        if data_packet.topic == "user_slide_nav":
+            slide_index = payload.get("slideIndex")
+            if isinstance(slide_index, int) and 0 <= slide_index < len(SLIDES):
+                logger.info("User keyboard nav: visual %d → %d  [cursor stays at %d]",
+                            agent.current_slide, slide_index, agent._cursor)
+                agent.current_slide = slide_index
+
+        elif data_packet.topic == "feedback_control":
+            if payload.get("action") == "start_feedback":
+                logger.info("Feedback mode started")
+                agent.is_presenting = False
+                agent.paused = False
+                agent._resume_event.set()
+                agent.feedback_mode = "rating"
+                asyncio.ensure_future(_start_feedback(agent, session))
 
     await session.start(
         agent=agent,

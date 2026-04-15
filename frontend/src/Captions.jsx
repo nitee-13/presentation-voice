@@ -13,9 +13,6 @@ const styles = {
     zIndex: 90,
     transition: "opacity 0.3s ease, transform 0.3s ease",
     overflow: "hidden",
-    display: "-webkit-box",
-    WebkitLineClamp: 2,
-    WebkitBoxOrient: "vertical",
   },
   visible: {
     opacity: 1,
@@ -31,10 +28,6 @@ const styles = {
     lineHeight: 1.5,
     color: "rgba(0, 0, 0, 0.85)",
     margin: 0,
-    display: "-webkit-box",
-    WebkitLineClamp: 2,
-    WebkitBoxOrient: "vertical",
-    overflow: "hidden",
   },
   label: {
     fontSize: "0.7rem",
@@ -70,21 +63,26 @@ export default function Captions({ agentTranscriptions, show, onToggle }) {
   const [captionText, setCaptionText] = useState("");
   const scrollRef = useRef(null);
 
-  // Show only the most recent transcription segments (rolling window)
+  // Show only segments that are currently being spoken or just finished
   useEffect(() => {
     if (!agentTranscriptions || agentTranscriptions.length === 0) {
       return;
     }
 
-    // Take only the last 3 segments so text stays current with speech
-    const recent = agentTranscriptions.slice(-3);
-    const text = recent
-      .map((seg) => seg.text)
-      .join("")
-      .trim();
+    // Non-final segments = actively being spoken right now
+    const active = agentTranscriptions.filter((seg) => !seg.final);
 
-    if (text) {
-      setCaptionText(text);
+    if (active.length > 0) {
+      // Agent is speaking — show the live streaming text
+      const text = active.map((seg) => seg.text).join(" ").trim();
+      if (text) setCaptionText(text);
+    } else {
+      // Agent finished — show the most recently finalized segment
+      const finals = agentTranscriptions.filter((seg) => seg.final);
+      if (finals.length > 0) {
+        const latest = finals[finals.length - 1];
+        setCaptionText(latest.text.trim());
+      }
     }
   }, [agentTranscriptions]);
 
