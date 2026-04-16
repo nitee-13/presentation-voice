@@ -29,7 +29,7 @@ A voice-powered AI presentation app where an AI agent ("Devi") narrates slides o
 | Agent Worker | LiveKit Agents (Python) |
 | Voice (STT) | Deepgram Nova-3 via LiveKit plugin |
 | Voice (TTS) | Google TTS (Chirp3-HD) via LiveKit plugin |
-| LLM | Claude Sonnet (routing + responses) / Claude Haiku (start detection + fillers) |
+| LLM | Claude Sonnet (routing + responses) / Claude Haiku (start detection + pre-start chat) |
 | Transport | WebRTC via LiveKit |
 | Deployment | Railway (backend) + Vercel (frontend) |
 
@@ -47,7 +47,7 @@ Browser (React + Vite)
                                              |-- TTS: Google TTS (Chirp3-HD)
                                              +-- LLM: Claude API
                                                    |-- Sonnet: slide routing + tool use + responses
-                                                   +-- Haiku: start intent detection + filler generation
+                                                   +-- Haiku: start intent detection + pre-start chat
 
 Data Channels:
     slide_change      Agent --> Frontend    (slide navigation)
