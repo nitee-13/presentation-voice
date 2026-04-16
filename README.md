@@ -2,6 +2,8 @@
 
 A voice-powered AI presentation app where an AI agent ("Devi") narrates slides on "Introduction to AI", answers audience questions in real-time, and automatically navigates to the relevant slide based on what the user asks.
 
+**[Live Demo](https://presentation-voice.vercel.app)** | **[Watch Video Demo](https://youtu.be/rAV0l_eUSgs)**
+
 ## Demo
 
 [![Watch the demo](https://img.youtube.com/vi/rAV0l_eUSgs/maxresdefault.jpg)](https://youtu.be/rAV0l_eUSgs)
