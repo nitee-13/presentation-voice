@@ -27,8 +27,8 @@ A voice-powered AI presentation app where an AI agent ("Devi") narrates slides o
 | Frontend | React 19 (Vite) |
 | Token Server | Python FastAPI |
 | Agent Worker | LiveKit Agents (Python) |
-| Voice (STT) | Deepgram Nova-3 via LiveKit Inference |
-| Voice (TTS) | Cartesia Sonic-3 via LiveKit Inference |
+| Voice (STT) | Deepgram Nova-3 via LiveKit plugin |
+| Voice (TTS) | Google TTS (Chirp3-HD) via LiveKit plugin |
 | LLM | Claude Sonnet (routing + responses) / Claude Haiku (start detection + fillers) |
 | Transport | WebRTC via LiveKit |
 | Deployment | Railway (backend) + Vercel (frontend) |
@@ -44,7 +44,7 @@ Browser (React + Vite)
                                        |
                                        +-- LiveKit Agent Worker
                                              |-- STT: Deepgram Nova-3
-                                             |-- TTS: Cartesia Sonic-3
+                                             |-- TTS: Google TTS (Chirp3-HD)
                                              +-- LLM: Claude API
                                                    |-- Sonnet: slide routing + tool use + responses
                                                    +-- Haiku: start intent detection + filler generation
@@ -59,10 +59,12 @@ Data Channels:
 
 ## Prerequisites
 
-- Python 3.12 (conda env: `presentation-voice`)
+- Python 3.12+
 - Node.js 18+
 - [LiveKit Cloud account](https://cloud.livekit.io) (free tier: 1,000 min/month)
 - [Anthropic API key](https://console.anthropic.com)
+- [Deepgram API key](https://console.deepgram.com) (free tier available)
+- [Google Cloud TTS credentials](https://console.cloud.google.com) (service account JSON)
 
 ## Setup
 
@@ -79,7 +81,7 @@ cp .env.example .env  # fill in your API keys
 ```bash
 cd frontend
 npm install
-cp .env.example .env  # fill in your LiveKit URL
+cp .env.example .env.local  # fill in your LiveKit URL
 ```
 
 ## Running
@@ -109,9 +111,11 @@ LIVEKIT_URL=wss://your-project.livekit.cloud
 LIVEKIT_API_KEY=your_livekit_api_key
 LIVEKIT_API_SECRET=your_livekit_api_secret
 ANTHROPIC_API_KEY=your_anthropic_key
+DEEPGRAM_API_KEY=your_deepgram_api_key
+GOOGLE_CREDENTIALS_JSON={"type":"service_account","project_id":"..."}
 ```
 
-### Frontend (`frontend/.env`)
+### Frontend (`frontend/.env.local`)
 
 ```
 VITE_LIVEKIT_URL=wss://your-project.livekit.cloud
@@ -142,6 +146,7 @@ presentation-voice/
 │   │   ├── FeedbackOverlay.jsx  # End-of-session rating and feedback
 │   │   ├── ErrorBoundary.jsx    # React error boundary
 │   │   └── slides.js            # Frontend slide definitions (11 slides)
+│   ├── vercel.json              # Vercel deployment config
 │   └── ...
 ├── backend/
 │   ├── agent.py                 # LiveKit agent worker — narration, Q&A, feedback
